@@ -1,0 +1,50 @@
+Install OpenSSL (version >= 1.0.2) for windows. May be from here http://www.heise.de/download/product/win32-openssl-47316
+Download Zlib: http://www.zlib.net/. 
+
+To run libh2o examples or unit tests:
+
+a) Run cmake and provide path for LibUV include and library directories, same for zlib.
+b) Generate the solution.
+
+
+1)  Running Tests (t-00unit-libuv.t):
+	1.1)	
+	Put folder with name "t" in the Build directory, if you have generated solution in a different folder than source.
+	1.2)
+	Link the test project with external library you generated for mman.
+	1.3) 
+	Copy libeay32.dll and ssleay32.dll and put them in your Build folder. (Can be found in 
+	openSSL/bin directory). 
+	1.4) 
+	Build and Debug.
+
+2)  examples-simple : serves a static file over http.
+	2.1) 
+    In Visual studio 2015, right click on examples-simple->properties.
+    Go to linker, Input, additional dependencies, and provide path of mman.lib, that you can build
+	from source code provided in External_libararies folder.
+
+    2.2)
+	Copy libeay32.dll and ssleay32.dll and put them in your Build folder. (Can be found in 
+	openSSL/bin directory), also if cmake build directory is different from source folder, copy examples folder in build directory.
+	
+	2.3) 
+	Generate key.pem and certificate.pem for your webserver, and put them in your h2o build folder.
+	"openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem" .
+	though encryption is not required for http2, but most browser only accept http2 with encryption.
+
+USAGE:	
+	The default address:port is: https//localhost:7890/index.html, you can request from any http2 compliant browser.
+
+	
+3) examples-http1client
+   3.1) same as 2.1) 
+
+USAGE:
+	from console : examples-http1client.exe URL
+	or Right click on examples-http1client, properties, debugging, and provide URL as command
+	argument.
+	URL: http//
+	Make sure libeay32.dll and ssleay32.dll are present in Debug directory.
+	
+	
