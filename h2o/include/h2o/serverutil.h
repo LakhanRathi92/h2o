@@ -24,6 +24,8 @@
 
 #include <stddef.h>
 
+typedef unsigned int pid_t;
+
 /* taken from sysexits.h */
 #ifndef EX_SOFTWARE
 #define EX_SOFTWARE 70
@@ -77,5 +79,6 @@ int h2o_read_command(const char *cmd, char **argv, h2o_buffer_t **resp, int *chi
  * Gets the number of processor cores
  */
 size_t h2o_numproc(void);
+
 
 #endif

@@ -892,7 +892,11 @@ void h2o_hpack_flatten_response(h2o_buffer_t **buf, h2o_hpack_header_table_t *he
     if (server_name->len) {
         dst = encode_header(header_table, dst, &H2O_TOKEN_SERVER->buf, server_name);
     }
-    h2o_iovec_t date_value = {ts->str->rfc1123, H2O_TIMESTR_RFC1123_LEN};
+#ifndef _MSC_VER
+	h2o_iovec_t date_value = {ts->str->rfc1123, H2O_TIMESTR_RFC1123_LEN};
+#else
+	h2o_iovec_t date_value = { H2O_TIMESTR_RFC1123_LEN , ts->str->rfc1123 };
+#endif
     dst = encode_header(header_table, dst, &H2O_TOKEN_DATE->buf, &date_value);
 #endif
     size_t i;

@@ -11,8 +11,7 @@ my $curl = "curl --silent --show-error --dump-header /dev/stderr";
 
 subtest 'basic' => sub {
     my $included = temp_config_file(<< "EOT");
-header.add: &marked "foo: FOO"
-file.dir: @{[DOC_ROOT]}
+mruby.handler: proc {|env| [200, {}, ["i'm included"]] }
 EOT
 
     my $server = spawn_h2o(<< "EOT");
@@ -24,13 +23,12 @@ EOT
 
     my ($stderr, $stdout) = run_prog("$curl http://127.0.0.1:@{[$server->{port}]}/");
     like $stderr, qr{^HTTP/[^ ]+ 200\s}s;
-    like $stderr, qr{^foo: ?FOO\r$}im;
+    is $stdout, "i'm included"
 };
 
 subtest 'multi-hop' => sub {
     my $included2 = temp_config_file(<< "EOT");
-header.add: &marked "foo: FOO"
-file.dir: @{[DOC_ROOT]}
+mruby.handler: proc {|env| [200, {}, ["i'm included too"]] }
 EOT
     my $included1 = temp_config_file(<< "EOT");
 !file $included2
@@ -45,13 +43,12 @@ EOT
 
     my ($stderr, $stdout) = run_prog("$curl http://127.0.0.1:@{[$server->{port}]}/");
     like $stderr, qr{^HTTP/[^ ]+ 200\s}s;
-    like $stderr, qr{^foo: ?FOO\r$}im;
+    is $stdout, "i'm included too"
 };
 
 subtest 'with-alias' => sub {
     my $included = temp_config_file(<< "EOT");
-header.add: &marked "foo: FOO"
-file.dir: @{[DOC_ROOT]}
+mruby.handler: &marked proc {|env| [200, {"foo" => "FOO"}, []]}
 EOT
 
     my $server = spawn_h2o(<< "EOT");
@@ -60,8 +57,7 @@ hosts:
     paths:
       /: !file $included
       /another:
-        header.add: *marked
-        file.dir: @{[DOC_ROOT]}
+        mruby.handler: *marked
 EOT
 
     subtest 'with_merge' => sub {
@@ -79,11 +75,11 @@ EOT
 
 subtest 'with-merge' => sub {
     my $included2 = temp_config_file(<< "EOT");
-header.add: "foo: FOO"
+mruby.handler: proc {|env| [399, {"foo" => "FOO"}, []]}
 EOT
     my $included1 = temp_config_file(<< "EOT");
 <<: !file $included2
-header.append: "bar: BAR"
+header.add: "bar: BAR"
 EOT
 
     my $server = spawn_h2o(<< "EOT");

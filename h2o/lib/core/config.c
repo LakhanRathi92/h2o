@@ -138,7 +138,6 @@ void h2o_config_init_pathconf(h2o_pathconf_t *pathconf, h2o_globalconf_t *global
         pathconf->path = h2o_strdup(NULL, path, SIZE_MAX);
     h2o_mem_addref_shared(mimemap);
     pathconf->mimemap = mimemap;
-    pathconf->error_log.emit_request_errors = 1;
 }
 
 void h2o_config_dispose_pathconf(h2o_pathconf_t *pathconf)
@@ -184,7 +183,7 @@ void h2o_config_init(h2o_globalconf_t *config)
     config->proxy.emit_x_forwarded_headers = 1;
     config->http2.max_concurrent_requests_per_connection = H2O_HTTP2_SETTINGS_HOST.max_concurrent_streams;
     config->http2.max_streams_for_priority = 16;
-    config->http2.latency_optimization.min_rtt = 50; // milliseconds
+    config->http2.latency_optimization.min_rtt = UINT_MAX;
     config->http2.latency_optimization.max_additional_delay = 10;
     config->http2.latency_optimization.max_cwnd = 65535;
     config->http2.callbacks = H2O_HTTP2_CALLBACKS;
@@ -244,7 +243,11 @@ h2o_hostconf_t *h2o_config_register_host(h2o_globalconf_t *config, h2o_iovec_t h
     /* create hostconf */
     hostconf = create_hostconf(config);
     hostconf->authority.host = host_lc;
+#ifndef _MSC_VER
     host_lc = (h2o_iovec_t){NULL};
+#else
+	host_lc = (h2o_iovec_t) { 0 };
+#endif
     hostconf->authority.port = port;
     if (hostconf->authority.port == 65535) {
         hostconf->authority.hostport = hostconf->authority.host;

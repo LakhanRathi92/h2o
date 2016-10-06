@@ -37,8 +37,12 @@ typedef struct st_h2o_filecache_ref_t {
     h2o_linklist_t _lru;
     union {
         struct {
+#ifndef _MSC_VER
             /* used if fd != -1 */
             struct stat st;
+#else
+			struct _stat st;
+#endif
             struct {
                 struct tm gm;
                 char str[H2O_TIMESTR_RFC1123_LEN + 1];

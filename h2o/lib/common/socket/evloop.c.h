@@ -23,7 +23,6 @@
 #include <netinet/tcp.h>
 #include <stdlib.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 #include <sys/uio.h>
 #include <unistd.h>
 #include "cloexec.h"

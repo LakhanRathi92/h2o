@@ -19,16 +19,30 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#ifndef _MSC_VER
 #include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <inttypes.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <pwd.h>
+#include <sys/un.h>
+#else
+#include <io.h>
+//avoid passwd struct for now
+struct passwd
+{
+	char *pw_name;		
+	char *pw_dir;		
+	char *pw_shell;		
+	int  pw_uid;
+	int  pw_gid;
+};
+#endif
+
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <sys/un.h>
 #include "h2o.h"
 #include "h2o/configurator.h"
 #include "h2o/serverutil.h"
@@ -42,13 +56,13 @@ struct fastcgi_configurator_t {
 static int on_config_timeout_io(h2o_configurator_command_t *cmd, h2o_configurator_context_t *ctx, yoml_t *node)
 {
     struct fastcgi_configurator_t *self = (void *)cmd->configurator;
-    return h2o_configurator_scanf(cmd, node, "%" SCNu64, &self->vars->io_timeout);
+    return h2o_configurator_scanf(cmd, node, "%" PRIu64, &self->vars->io_timeout);
 }
 
 static int on_config_timeout_keepalive(h2o_configurator_command_t *cmd, h2o_configurator_context_t *ctx, yoml_t *node)
 {
     struct fastcgi_configurator_t *self = (void *)cmd->configurator;
-    return h2o_configurator_scanf(cmd, node, "%" SCNu64, &self->vars->keepalive_timeout);
+    return h2o_configurator_scanf(cmd, node, "%" PRIu64, &self->vars->keepalive_timeout);
 }
 
 static int on_config_document_root(h2o_configurator_command_t *cmd, h2o_configurator_context_t *ctx, yoml_t *node)
@@ -120,7 +134,7 @@ static int on_config_connect(h2o_configurator_command_t *cmd, h2o_configurator_c
                                    "value must be a string or a mapping (with keys: `port` and optionally `host` and `type`)");
         return -1;
     }
-
+#ifndef _MSC_VER
     if (strcmp(type, "unix") == 0) {
         /* unix socket */
         struct sockaddr_un sa;
@@ -132,7 +146,9 @@ static int on_config_connect(h2o_configurator_command_t *cmd, h2o_configurator_c
         sa.sun_family = AF_UNIX;
         strcpy(sa.sun_path, servname);
         h2o_fastcgi_register_by_address(ctx->pathconf, (void *)&sa, sizeof(sa), self->vars);
-    } else if (strcmp(type, "tcp") == 0) {
+    } else 
+#else
+		if (strcmp(type, "tcp") == 0) {
         /* tcp socket */
         uint16_t port;
         if (sscanf(servname, "%" SCNu16, &port) != 1) {
@@ -144,21 +160,21 @@ static int on_config_connect(h2o_configurator_command_t *cmd, h2o_configurator_c
         h2o_configurator_errprintf(cmd, node, "unknown listen type: %s", type);
         return -1;
     }
-
+#endif
     return 0;
 }
 
+#ifndef _MSC_VER
 static int create_spawnproc(h2o_configurator_command_t *cmd, yoml_t *node, const char *dirname, char *const *argv,
                             struct sockaddr_un *sa, struct passwd *pw)
 {
-    int listen_fd, pipe_fds[2] = {-1, -1};
+	int listen_fd, pipe_fds[2] = { -1, -1 };
 
-    /* build socket path */
-    sa->sun_family = AF_UNIX;
-    strcpy(sa->sun_path, dirname);
-    strcat(sa->sun_path, "/_");
-
-    /* create socket */
+	/* build socket path */
+	sa->sun_family = AF_UNIX;
+	strcpy(sa->sun_path, dirname);
+	strcat(sa->sun_path, "/_");
+	/* create socket */
     if ((listen_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
         h2o_configurator_errprintf(cmd, node, "socket(2) failed: %s", strerror(errno));
         goto Error;
@@ -173,7 +189,7 @@ static int create_spawnproc(h2o_configurator_command_t *cmd, yoml_t *node, const
     }
     /* change ownership of socket */
     if (pw != NULL && chown(sa->sun_path, pw->pw_uid, pw->pw_gid) != 0) {
-        h2o_configurator_errprintf(cmd, node, "chown(2) failed to change ownership of socket:%s:%s", sa->sun_path, strerror(errno));
+		h2o_configurator_errprintf(cmd, node, "chown(2) failed to change ownership of socket:%s:%s", sa->sun_path, strerror(errno));
         goto Error;
     }
 
@@ -185,17 +201,16 @@ static int create_spawnproc(h2o_configurator_command_t *cmd, yoml_t *node, const
         goto Error;
     }
     fcntl(pipe_fds[1], F_SETFD, FD_CLOEXEC);
-
     /* spawn */
     int mapped_fds[] = {listen_fd, 0,   /* listen_fd to 0 */
                         pipe_fds[0], 5, /* pipe_fds[0] to 5 */
                         -1};
     pid_t pid = h2o_spawnp(argv[0], argv, mapped_fds, 0);
+
     if (pid == -1) {
         fprintf(stderr, "[lib/handler/fastcgi.c] failed to launch helper program %s:%s\n", argv[0], strerror(errno));
         goto Error;
     }
-
     close(listen_fd);
     listen_fd = -1;
     close(pipe_fds[0]);
@@ -210,9 +225,77 @@ Error:
         close(pipe_fds[1]);
     if (listen_fd != -1)
         close(listen_fd);
+
     unlink(sa->sun_path);
+
     return -1;
 }
+#else
+static int create_spawnproc(h2o_configurator_command_t *cmd, yoml_t *node, const char *dirname, char *const *argv,
+	struct sockaddr *sa, struct passwd *pw)
+{
+	int listen_fd, pipe_fds[2] = { -1, -1 };
+
+	/* build socket path */
+	sa->sa_family = AF_UNIX;
+	strcpy(sa->sa_data, dirname);
+	strcat(sa->sa_data, "/_");
+	/* create socket */
+	if ((listen_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+		h2o_configurator_errprintf(cmd, node, "socket(2) failed: %s", strerror(errno));
+		goto Error;
+	}
+	if (bind(listen_fd, (void *)sa, sizeof(*sa)) != 0) {
+		h2o_configurator_errprintf(cmd, node, "bind(2) failed: %s", strerror(errno));
+		goto Error;
+	}
+	if (listen(listen_fd, H2O_SOMAXCONN) != 0) {
+		h2o_configurator_errprintf(cmd, node, "listen(2) failed: %s", strerror(errno));
+		goto Error;
+	}
+	
+
+/* create pipe which is used to notify the termination of the server */
+	if(_pipe(pipe_fds, 4096, O_BINARY) != 0) 
+	{
+	h2o_configurator_errprintf(cmd, node, "pipe(2) failed: %s", strerror(errno));
+	pipe_fds[0] = -1;
+	pipe_fds[1] = -1;
+	goto Error;
+	}
+
+	/* spawn */
+	int mapped_fds[] = { listen_fd, 0,   pipe_fds[0], 5, -1 };
+	/* listen_fd to 0 */
+	/* pipe_fds[0] to 5 */
+
+	pid_t pid = h2o_spawnp(argv[0], argv, mapped_fds, 0);
+
+	if(pid == -1) {
+		fprintf(stderr, "[lib/handler/fastcgi.c] failed to launch helper program %s:%s\n", argv[0], strerror(errno));
+		goto Error;
+	}
+	_close(listen_fd);
+	listen_fd = -1;
+	_close(pipe_fds[0]);
+	pipe_fds[0] = -1;
+
+	return pipe_fds[1];
+
+Error:
+	if (pipe_fds[0] != -1)
+		_close(pipe_fds[0]);
+	if (pipe_fds[1])
+		_close(pipe_fds[1]);
+	if (listen_fd != -1)
+		_close(listen_fd);
+
+	_unlink(sa->sa_data);
+
+	return -1;
+}
+#endif
+
 
 static void spawnproc_on_dispose(h2o_fastcgi_handler_t *handler, void *data)
 {
@@ -228,7 +311,11 @@ static int on_config_spawn(h2o_configurator_command_t *cmd, h2o_configurator_con
     char dirname[] = "/tmp/h2o.fcgisock.XXXXXX";
     char *argv[10];
     int spawner_fd;
+#ifndef _MSC_VER
     struct sockaddr_un sa;
+#else
+	struct sockaddr sa;
+#endif
     h2o_fastcgi_config_vars_t config_vars;
     int ret = -1;
     struct passwd spawn_pwbuf, *spawn_pw;
@@ -266,6 +353,7 @@ static int on_config_spawn(h2o_configurator_command_t *cmd, h2o_configurator_con
         return -1;
     }
 
+#ifndef _MSC_VER
     /* obtain uid & gid of spawn_user */
     if (spawn_user != NULL) {
         /* change ownership of temporary directory */
@@ -280,6 +368,9 @@ static int on_config_spawn(h2o_configurator_command_t *cmd, h2o_configurator_con
     } else {
         spawn_pw = NULL;
     }
+#else
+	spawn_pw = NULL;
+#endif
 
     { /* build args */
         size_t i = 0;
@@ -301,22 +392,36 @@ static int on_config_spawn(h2o_configurator_command_t *cmd, h2o_configurator_con
     if (ctx->dry_run) {
         dirname[0] = '\0';
         spawner_fd = -1;
+#ifndef _MSC_VER
         sa.sun_family = AF_UNIX;
         strcpy(sa.sun_path, "/dry-run.nonexistent");
+#else
+		sa.sa_family = AF_UNIX;
+		strcpy(sa.sa_data, "/dry-run.nonexistent");
+#endif
     } else {
         /* create temporary directory */
-        if (mkdtemp(dirname) == NULL) {
+#ifndef _MSC_VER        
+			if (mkdtemp(dirname) == NULL) {
             h2o_configurator_errprintf(cmd, node, "mkdtemp(3) failed to create temporary directory:%s:%s", dirname,
                                        strerror(errno));
+#else
+		if (_mktemp_s(dirname, sizeof(dirname)) != 0) {
+			h2o_configurator_errprintf(cmd, node, "mkdtemp(3) failed to create temporary directory:%s:%s", dirname,
+				strerror(errno));
+#endif
+
             dirname[0] = '\0';
             goto Exit;
         }
+#ifndef _MSC_VER
         /* change ownership of temporary directory */
         if (spawn_pw != NULL && chown(dirname, spawn_pw->pw_uid, spawn_pw->pw_gid) != 0) {
             h2o_configurator_errprintf(cmd, node, "chown(2) failed to change ownership of temporary directory:%s:%s", dirname,
                                        strerror(errno));
             goto Exit;
         }
+#endif
         /* launch spawnfcgi command */
         if ((spawner_fd = create_spawnproc(cmd, node, dirname, argv, &sa, spawn_pw)) == -1) {
             goto Exit;

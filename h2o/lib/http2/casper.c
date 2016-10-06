@@ -20,7 +20,8 @@
  * IN THE SOFTWARE.
  */
 #include <openssl/sha.h>
-#include "golombset.h"
+//#include "golombset.h" 
+#include <h2o/golombset.h>
 #include "h2o/string_.h"
 #include "h2o/http2_casper.h"
 
@@ -56,7 +57,11 @@ h2o_http2_casper_t *h2o_http2_casper_create(unsigned capacity_bits, unsigned rem
     memset(&casper->keys, 0, sizeof(casper->keys));
     casper->capacity_bits = capacity_bits;
     casper->remainder_bits = remainder_bits;
+#ifndef _MSC_VER
     casper->cookie_cache = (h2o_iovec_t){NULL};
+#else
+	casper->cookie_cache = (h2o_iovec_t) { 0 };
+#endif
 
     return casper;
 }
@@ -89,7 +94,11 @@ int h2o_http2_casper_lookup(h2o_http2_casper_t *casper, const char *path, size_t
 
     /* we need to set a new value */
     free(casper->cookie_cache.base);
+#ifndef _MSC_VER
     casper->cookie_cache = (h2o_iovec_t){NULL};
+#else
+	casper->cookie_cache = (h2o_iovec_t) { 0 };
+#endif
     h2o_vector_reserve(NULL, &casper->keys, casper->keys.size + 1);
     memmove(casper->keys.entries + i + 1, casper->keys.entries + i, (casper->keys.size - i) * sizeof(casper->keys.entries[0]));
     ++casper->keys.size;
@@ -99,7 +108,11 @@ int h2o_http2_casper_lookup(h2o_http2_casper_t *casper, const char *path, size_t
 
 void h2o_http2_casper_consume_cookie(h2o_http2_casper_t *casper, const char *cookie, size_t cookie_len)
 {
+#ifndef _MSC_VER
     h2o_iovec_t binary = {NULL};
+#else
+	h2o_iovec_t binary = { 0 };
+#endif
     uint64_t tiny_keys_buf[128], *keys = tiny_keys_buf;
 
     /* check the name of the cookie */
@@ -177,7 +190,11 @@ h2o_iovec_t h2o_http2_casper_get_cookie(h2o_http2_casper_t *casper)
         return casper->cookie_cache;
 
     if (casper->keys.size == 0)
+#ifndef _MSC_VER
         return (h2o_iovec_t){NULL};
+#else
+		return (h2o_iovec_t) { 0 };
+#endif
 
     /* encode as binary */
     char tiny_bin_buf[128], *bin_buf = tiny_bin_buf;

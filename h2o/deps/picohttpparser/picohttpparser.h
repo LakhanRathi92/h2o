@@ -27,17 +27,24 @@
 #ifndef picohttpparser_h
 #define picohttpparser_h
 
+
 #include <sys/types.h>
 
-#ifdef _MSC_VER
-#define ssize_t intptr_t
-#endif
+//#ifdef _MSC_VER
+//#define ssize_t intptr_t
+//#endif
 
 /* $Id$ */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+	typedef SSIZE_T ssize_t;
+#endif
+
 
 /* contains name and value of a header (name == NULL if is a continuing line
  * of a multiline header */

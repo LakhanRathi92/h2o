@@ -23,6 +23,7 @@
 #ifndef __GKC_H__
 #define __GKC_H__
 
+
 struct gkc_summary;
 
 void gkc_print_summary(struct gkc_summary *s);

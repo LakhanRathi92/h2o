@@ -33,6 +33,7 @@ extern "C" {
 
 #define H2O_STRLIT(s) (s), sizeof(s) - 1
 
+#define H2O_MY_STRLIT(s) sizeof(s)-1, (s)
 #define H2O_INT16_LONGEST_STR "-32768"
 #define H2O_UINT16_LONGEST_STR "65535"
 #define H2O_INT32_LONGEST_STR "-2147483648"

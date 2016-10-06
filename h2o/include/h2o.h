@@ -26,15 +26,28 @@
 extern "C" {
 #endif
 
+#ifndef _MSC_VER
+#include <sys/time.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#else
+#include<winsock2.h>
+#include<ws2tcpip.h>
+#pragma comment(lib, "Ws2_32.lib")
+#define __attribute__(A)
+
+//String mappings
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+
+#endif
+
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
-#include <sys/time.h>
-#include <sys/socket.h>
 #include <time.h>
-#include <unistd.h>
 #include <openssl/ssl.h>
 #include "h2o/filecache.h"
 #include "h2o/hostinfo.h"
@@ -50,6 +63,14 @@ extern "C" {
 #include "h2o/timeout.h"
 #include "h2o/url.h"
 #include "h2o/version.h"
+
+#ifdef _WIN32
+#ifndef UV_MUTEX_INITIALIZER
+#define UV_COND_INITIALIZER {0}
+#define UV_MUTEX_INITIALIZER {(void*)-1,-1,0,0,0,0}
+#endif
+#endif
+
 
 #ifndef H2O_USE_BROTLI
 /* disabled for all but the standalone server, since the encoder is written in C++ */
@@ -85,8 +106,6 @@ extern "C" {
 #define H2O_DEFAULT_PROXY_IO_TIMEOUT (H2O_DEFAULT_PROXY_IO_TIMEOUT_IN_SECS * 1000)
 #define H2O_DEFAULT_PROXY_WEBSOCKET_TIMEOUT_IN_SECS 300
 #define H2O_DEFAULT_PROXY_WEBSOCKET_TIMEOUT (H2O_DEFAULT_PROXY_WEBSOCKET_TIMEOUT_IN_SECS * 1000)
-#define H2O_DEFAULT_PROXY_SSL_SESSION_CACHE_CAPACITY 4096
-#define H2O_DEFAULT_PROXY_SSL_SESSION_CACHE_DURATION 86400000 /* 24 hours */
 
 typedef struct st_h2o_conn_t h2o_conn_t;
 typedef struct st_h2o_context_t h2o_context_t;
@@ -221,15 +240,6 @@ typedef struct st_h2o_pathconf_t {
      * env
      */
     h2o_envconf_t *env;
-    /**
-     * error-log
-     */
-    struct {
-        /**
-         * if request-level errors should be emitted to stderr
-         */
-        unsigned emit_request_errors : 1;
-    } error_log;
 } h2o_pathconf_t;
 
 struct st_h2o_hostconf_t {
@@ -407,12 +417,6 @@ struct st_h2o_globalconf_t {
     h2o_status_callbacks_t statuses;
 
     size_t _num_config_slots;
-};
-
-enum {
-    H2O_COMPRESS_HINT_AUTO = 0, /* default: let h2o negociate compression based on the configuration */
-    H2O_COMPRESS_HINT_DISABLE,  /* compression was explicitely disabled for this request */
-    H2O_COMPRESS_HINT_ENABLE,   /* compression was explicitely enabled for this request */
 };
 
 /**
@@ -851,14 +855,6 @@ typedef struct st_h2o_filereq_t {
 } h2o_filereq_t;
 
 /**
- * error message associated to a request
- */
-typedef struct st_h2o_req_error_log_t {
-    const char *module;
-    h2o_iovec_t msg;
-} h2o_req_error_log_t;
-
-/**
  * a HTTP request
  */
 struct st_h2o_req_t {
@@ -986,11 +982,6 @@ struct st_h2o_req_t {
      */
     h2o_iovec_vector_t env;
 
-    /**
-     * error logs
-     */
-    H2O_VECTOR(h2o_req_error_log_t) error_logs;
-
     /* flags */
 
     /**
@@ -1003,11 +994,6 @@ struct st_h2o_req_t {
      * For delegated responses, redirect responses would be handled internally.
      */
     char res_is_delegated;
-    /**
-     * Whether the producer of the response has explicitely disabled or
-     * enabled compression. One of H2O_COMPRESS_HINT_*
-     */
-    char compress_hint;
 
     /**
      * the Upgrade request header (or { NULL, 0 } if not available)
@@ -1156,8 +1142,11 @@ int h2o_get_compressible_types(const h2o_headers_t *headers);
  */
 h2o_iovec_t h2o_build_destination(h2o_req_t *req, const char *prefix, size_t prefix_len, int use_path_normalized);
 
+#ifndef _MSC_VER
 extern uint64_t h2o_connection_id;
-
+#else
+extern long h2o_connection_id;
+#endif
 /* request */
 
 /**
@@ -1835,7 +1824,11 @@ inline h2o_conn_t *h2o_create_connection(size_t sz, h2o_context_t *ctx, h2o_host
     conn->ctx = ctx;
     conn->hosts = hosts;
     conn->connected_at = connected_at;
+#ifndef _MSC_VER
     conn->id = __sync_add_and_fetch(&h2o_connection_id, 1);
+#else
+	conn->id = InterlockedIncrement(&h2o_connection_id);
+#endif
     conn->callbacks = callbacks;
 
     return conn;

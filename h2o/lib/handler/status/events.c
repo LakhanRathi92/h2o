@@ -28,16 +28,22 @@ struct st_events_status_ctx_t {
     uint64_t h2_protocol_level_errors[H2O_HTTP2_ERROR_MAX];
     uint64_t h2_read_closed;
     uint64_t h2_write_closed;
+#ifndef _MSC_VER
     pthread_mutex_t mutex;
+#else
+	uv_mutex_t	mutex;
+#endif
 };
 
 static void events_status_per_thread(void *priv, h2o_context_t *ctx)
 {
     size_t i;
     struct st_events_status_ctx_t *esc = priv;
-
+#ifndef _MSC_VER
     pthread_mutex_lock(&esc->mutex);
-
+#else
+	uv_mutex_lock(&esc->mutex);
+#endif
     for (i = 0; i < H2O_STATUS_ERROR_MAX; i++) {
         esc->emitted_status_errors[i] += ctx->emitted_error_status[i];
     }
@@ -46,8 +52,11 @@ static void events_status_per_thread(void *priv, h2o_context_t *ctx)
     }
     esc->h2_read_closed += ctx->http2.events.read_closed;
     esc->h2_write_closed += ctx->http2.events.write_closed;
-
+#ifndef _MSC_VER
     pthread_mutex_unlock(&esc->mutex);
+#else
+	uv_mutex_unlock(&esc->mutex);
+#endif
 }
 
 static void *events_status_init(void)
@@ -56,8 +65,11 @@ static void *events_status_init(void)
 
     ret = h2o_mem_alloc(sizeof(*ret));
     memset(ret, 0, sizeof(*ret));
+#ifndef _MSC_VER
     pthread_mutex_init(&ret->mutex, NULL);
-
+#else
+	uv_mutex_init(&ret->mutex);
+#endif
     return ret;
 }
 
@@ -67,7 +79,12 @@ static h2o_iovec_t events_status_final(void *priv, h2o_globalconf_t *gconf, h2o_
     h2o_iovec_t ret;
 
 #define H1_AGG_ERR(status_) esc->emitted_status_errors[H2O_STATUS_ERROR_##status_]
+#ifndef _MSC_VER
 #define H2_AGG_ERR(err_) esc->h2_protocol_level_errors[-H2O_HTTP2_ERROR_##err_]
+#else
+#define H2_AGG_ERR(err_) esc->h2_protocol_level_errors[H2O_HTTP2_ERROR_##err_]
+#endif
+
 #define BUFSIZE (2 * 1024)
     ret.base = h2o_mem_alloc_pool(&req->pool, BUFSIZE);
     ret.len = snprintf(ret.base, BUFSIZE, ",\n"
@@ -99,7 +116,11 @@ static h2o_iovec_t events_status_final(void *priv, h2o_globalconf_t *gconf, h2o_
                        H2_AGG_ERR(FLOW_CONTROL), H2_AGG_ERR(SETTINGS_TIMEOUT), H2_AGG_ERR(STREAM_CLOSED), H2_AGG_ERR(FRAME_SIZE),
                        H2_AGG_ERR(REFUSED_STREAM), H2_AGG_ERR(CANCEL), H2_AGG_ERR(COMPRESSION), H2_AGG_ERR(CONNECT),
                        H2_AGG_ERR(ENHANCE_YOUR_CALM), H2_AGG_ERR(INADEQUATE_SECURITY), esc->h2_read_closed, esc->h2_write_closed);
-    pthread_mutex_destroy(&esc->mutex);
+#ifndef _MSC_VER
+	pthread_mutex_destroy(&esc->mutex);
+#else
+	uv_mutex_destroy(&esc->mutex);
+#endif
     free(esc);
     return ret;
 #undef BUFSIZE
@@ -107,6 +128,12 @@ static h2o_iovec_t events_status_final(void *priv, h2o_globalconf_t *gconf, h2o_
 #undef H2_AGG_ERR
 }
 
+#ifndef _MSC_VER
 h2o_status_handler_t events_status_handler = {
     {H2O_STRLIT("events")}, events_status_init, events_status_per_thread, events_status_final,
 };
+#else
+h2o_status_handler_t events_status_handler = {
+	{ H2O_MY_STRLIT("events") }, events_status_init, events_status_per_thread, events_status_final,
+};
+#endif

@@ -20,7 +20,11 @@
  * IN THE SOFTWARE.
  */
 #include <assert.h>
+#ifndef _MSC_VER
 #include <pthread.h>
+#else
+#include "uv.h"
+#endif
 #include "khash.h"
 #include "h2o/cache.h"
 #include "h2o/linklist.h"
@@ -41,7 +45,11 @@ struct st_h2o_cache_t {
     h2o_linklist_t age;
     uint64_t duration;
     void (*destroy_cb)(h2o_iovec_t value);
+#ifndef _MSC_VER
     pthread_mutex_t mutex; /* only used if (flags & H2O_CACHE_FLAG_MULTITHREADED) != 0 */
+#else
+	uv_mutex_t mutex;
+#endif
 };
 
 static h2o_cache_hashcode_t get_keyhash(h2o_cache_ref_t *ref)
@@ -57,13 +65,21 @@ static int is_equal(h2o_cache_ref_t *x, h2o_cache_ref_t *y)
 static void lock_cache(h2o_cache_t *cache)
 {
     if ((cache->flags & H2O_CACHE_FLAG_MULTITHREADED) != 0)
+#ifndef _MSC_VER
         pthread_mutex_lock(&cache->mutex);
+#else
+		uv_mutex_lock(&cache->mutex);
+#endif
 }
 
 static void unlock_cache(h2o_cache_t *cache)
 {
     if ((cache->flags & H2O_CACHE_FLAG_MULTITHREADED) != 0)
-        pthread_mutex_unlock(&cache->mutex);
+#ifndef _MSC_VER
+		pthread_mutex_lock(&cache->mutex);
+#else
+		uv_mutex_lock(&cache->mutex);
+#endif
 }
 
 static void erase_ref(h2o_cache_t *cache, khiter_t iter, int reuse)
@@ -123,8 +139,11 @@ h2o_cache_t *h2o_cache_create(int flags, size_t capacity, uint64_t duration, voi
     cache->duration = duration;
     cache->destroy_cb = destroy_cb;
     if ((cache->flags & H2O_CACHE_FLAG_MULTITHREADED) != 0)
+#ifndef _MSC_VER
         pthread_mutex_init(&cache->mutex, NULL);
-
+#else
+		uv_mutex_init(&cache->mutex);
+#endif
     return cache;
 }
 
@@ -133,7 +152,11 @@ void h2o_cache_destroy(h2o_cache_t *cache)
     h2o_cache_clear(cache);
     kh_destroy(cache, cache->table);
     if ((cache->flags & H2O_CACHE_FLAG_MULTITHREADED) != 0)
+#ifndef _MSC_VER
         pthread_mutex_destroy(&cache->mutex);
+#else
+		uv_mutex_destroy(&cache->mutex);
+#endif
     free(cache);
 }
 
@@ -182,7 +205,11 @@ h2o_cache_ref_t *h2o_cache_fetch(h2o_cache_t *cache, uint64_t now, h2o_iovec_t k
     /* move the entry to the top of LRU */
     h2o_linklist_unlink(&ref->_lru_link);
     h2o_linklist_insert(&cache->lru, &ref->_lru_link);
+#ifndef _MSC_VER
     __sync_fetch_and_add(&ref->_refcnt, 1);
+#else
+	InterlockedIncrement(&ref->_refcnt);
+#endif
 
     /* unlock and return the found entry */
     unlock_cache(cache);
@@ -195,7 +222,13 @@ NotFound:
 
 void h2o_cache_release(h2o_cache_t *cache, h2o_cache_ref_t *ref)
 {
-    if (__sync_fetch_and_sub(&ref->_refcnt, 1) == 1) {
+#ifndef _MSC_VER
+    if (__sync_fetch_and_sub(&ref->_refcnt, 1) == 1) { //returns the previous value of pointer.
+#else
+	size_t previousVal = ref->_refcnt;
+	int xTmp = InterlockedDecrement(&ref->_refcnt); // returns the resulting value of pointer.
+	if ( previousVal == 1) {
+#endif
         assert(!h2o_linklist_is_linked(&ref->_lru_link));
         assert(!h2o_linklist_is_linked(&ref->_age_link));
         if (cache->destroy_cb != NULL)
@@ -260,14 +293,4 @@ void h2o_cache_delete(h2o_cache_t *cache, uint64_t now, h2o_iovec_t key, h2o_cac
         erase_ref(cache, iter, 0);
 
     unlock_cache(cache);
-}
-
-size_t h2o_cache_get_capacity(h2o_cache_t *cache)
-{
-    return cache->capacity;
-}
-
-uint64_t h2o_cache_get_duration(h2o_cache_t *cache)
-{
-    return cache->duration;
 }

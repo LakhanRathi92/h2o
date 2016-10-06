@@ -30,8 +30,12 @@ static void test_load_tickets_file(void)
     ok(ret == 0);
     if (ret != 0)
         return;
-
+#ifndef _MSC_VER
     pthread_rwlock_rdlock(&session_tickets.rwlock);
+#else
+
+	uv_rwlock_rdlock(&session_tickets.rwlock);
+#endif
     ok(session_tickets.tickets.size == 2);
     if (session_tickets.tickets.size != 2)
         goto Exit;
@@ -81,8 +85,13 @@ static void test_load_tickets_file(void)
     ok(ticket == NULL);
 
 Exit:
+#ifndef _MSC_VER
     pthread_rwlock_unlock(&session_tickets.rwlock);
     ;
+#else
+	uv_rwlock_wrunlock(&session_tickets.rwlock)
+	;
+#endif
 }
 
 static void test_serialize_tickets(void)
@@ -109,9 +118,9 @@ static void test_serialize_tickets(void)
 #define OK_MEMCMP(n, s) ok(memcmp(parsed.entries[i]->n, orig.entries[i]->n, (s)) == 0)
         OK_MEMCMP(name, sizeof(parsed.entries[i]->name));
         OK_VALUE(cipher.cipher);
-        OK_MEMCMP(cipher.key, EVP_CIPHER_key_length(parsed.entries[i]->cipher.cipher));
+        OK_MEMCMP(cipher.key, parsed.entries[i]->cipher.cipher->key_len);
         OK_VALUE(hmac.md);
-        OK_MEMCMP(hmac.key, EVP_MD_block_size(parsed.entries[i]->hmac.md));
+        OK_MEMCMP(hmac.key, parsed.entries[i]->hmac.md->block_size);
         OK_VALUE(not_before);
         OK_VALUE(not_after);
 #undef OK_VALUE
@@ -122,6 +131,8 @@ static void test_serialize_tickets(void)
     free_tickets(&parsed);
     free(serialized.base);
 }
+
+#ifndef _MSC_VER
 
 static void test_memcached_ticket_update(void)
 {
@@ -193,10 +204,15 @@ static void test_memcached_ticket_update(void)
     /* disconnect */
     yrmcds_close(&conn);
 }
+#else
+#endif
 
 void test_src__ssl_c(void)
 {
     subtest("load-tickets-file", test_load_tickets_file);
     subtest("serialize-tickets", test_serialize_tickets);
-    subtest("memcached-ticket-update", test_memcached_ticket_update);
+#ifndef _MSC_VER
+	subtest("memcached-ticket-update", test_memcached_ticket_update);
+#else
+#endif
 }

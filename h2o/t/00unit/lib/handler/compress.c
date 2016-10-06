@@ -20,22 +20,38 @@
  * IN THE SOFTWARE.
  */
 #include <stdlib.h>
-#include <zlib.h>
+#include "zlib.h"
 #include "../../test.h"
 #define BUF_SIZE 256
 #include "../../../../lib/handler/compress/gzip.c"
 #include "../../../../lib/handler/compress.c"
 
+#ifdef _MSC_VER
+
+#endif
+
 static void check_result(h2o_iovec_t *vecs, size_t num_vecs, const char *expected, size_t expectedlen)
 {
     z_stream zs;
+	//Lak: VLA not supported in MSVC
+	// template for decbuff is not there too.
+	// so some fixes
+#ifndef _MSC_VER 
     char decbuf[expectedlen + 1];
+#else
+	char *decbuf =  _alloca( expectedlen + 1);	
+#endif
 
     memset(&zs, 0, sizeof(zs));
     zs.zalloc = alloc_cb;
     zs.zfree = free_cb;
+#ifndef _MSC_VER
     zs.next_out = (void *)decbuf;
     zs.avail_out = (unsigned)sizeof(decbuf);
+#else
+	zs.next_out = (void *)decbuf;
+	zs.avail_out = expectedlen + 1;
+#endif
 
     inflateInit2(&zs, WINDOW_BITS);
 
@@ -58,8 +74,13 @@ static void check_result(h2o_iovec_t *vecs, size_t num_vecs, const char *expecte
     ok(inflate_ret == Z_STREAM_END);
     inflateEnd(&zs);
 
+#ifndef _MSC_VER
     ok(zs.avail_out == sizeof(decbuf) - expectedlen);
     ok(memcmp(decbuf, expected, expectedlen) == 0);
+#else
+	ok(zs.avail_out == (expectedlen + 1) - expectedlen);
+	ok(memcmp(decbuf, expected, expectedlen) == 0);
+#endif
 }
 
 void test_gzip_simple(void)
@@ -99,7 +120,11 @@ void test_gzip_multi(void)
     "hedge.\n\n"
 
     h2o_mem_pool_t pool;
+#ifndef _MSC_VER
     h2o_iovec_t inbufs[] = {{H2O_STRLIT(P1)}, {H2O_STRLIT(P2)}, {H2O_STRLIT(P3)}}, *outbufs;
+#else
+	h2o_iovec_t inbufs[] = { { H2O_MY_STRLIT(P1) },{ H2O_MY_STRLIT(P2) },{ H2O_MY_STRLIT(P3) } }, *outbufs;
+#endif
     size_t outbufcnt;
 
     h2o_mem_init_pool(&pool);

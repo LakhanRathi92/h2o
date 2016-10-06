@@ -22,7 +22,11 @@
 #include <limits.h>
 #include <openssl/sha.h>
 #include <stdlib.h>
+#ifndef _MSC_VER
 #include "golombset.h"
+#else
+#include "h2o/golombset.h"
+#endif
 #include "h2o/string_.h"
 #include "h2o/cache_digests.h"
 
@@ -152,10 +156,14 @@ static uint64_t calc_hash(const char *url, size_t url_len, const char *etag, siz
     SHA256_Update(&ctx, etag, etag_len);
     SHA256_Final(md.bytes, &ctx);
 
-    if (*(uint16_t *)"\xde\xad" == 0xdead)
-        return md.u64;
-    else
-        return __builtin_bswap64(md.u64);
+	if (*(uint16_t *)"\xde\xad" == 0xdead)
+		return md.u64;
+	else
+#ifndef _MSC_VER
+		return __builtin_bswap64(md.u64);
+#else
+		return _byteswap_uint64(md.u64);
+#endif
 }
 
 static int cmp_key(const void *_x, const void *_y)

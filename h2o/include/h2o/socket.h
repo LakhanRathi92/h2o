@@ -27,11 +27,15 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#ifndef _MSC_VER
 #include <sys/socket.h>
+#else
+#include<winsock2.h>
+#include<ws2tcpip.h>
+#pragma comment(lib, "Ws2_32.lib")
+#endif
 #include <openssl/ssl.h>
-#include "h2o/cache.h"
 #include "h2o/memory.h"
-#include "h2o/openssl_backport.h"
 #include "h2o/string_.h"
 
 #ifndef H2O_USE_LIBUV
@@ -75,7 +79,8 @@ typedef struct st_h2o_socket_t h2o_socket_t;
 
 typedef void (*h2o_socket_cb)(h2o_socket_t *sock, const char *err);
 
-#if H2O_USE_LIBUV
+//#if H2O_USE_LIBUV
+#if 1
 #include "socket/uv-binding.h"
 #else
 #include "socket/evloop.h"
@@ -154,7 +159,8 @@ typedef void (*h2o_socket_ssl_resumption_new_cb)(h2o_iovec_t session_id, h2o_iov
 typedef void (*h2o_socket_ssl_resumption_remove_cb)(h2o_iovec_t session_id);
 
 extern h2o_buffer_mmap_settings_t h2o_socket_buffer_mmap_settings;
-extern __thread h2o_buffer_prototype_t h2o_socket_buffer_prototype;
+//extern __thread h2o_buffer_prototype_t h2o_socket_buffer_prototype;
+extern h2o_buffer_prototype_t h2o_socket_buffer_prototype;
 
 extern const char *h2o_socket_error_out_of_memory;
 extern const char *h2o_socket_error_io;
@@ -303,18 +309,6 @@ void h2o_socket_ssl_async_resumption_setup_ctx(SSL_CTX *ctx);
  * @param sock the socket
  */
 h2o_iovec_t h2o_socket_ssl_get_selected_protocol(h2o_socket_t *sock);
-/**
- *
- */
-h2o_cache_t *h2o_socket_ssl_get_session_cache(SSL_CTX *ctx);
-/**
- *
- */
-void h2o_socket_ssl_set_session_cache(SSL_CTX *ctx, h2o_cache_t *cache);
-/**
- *
- */
-void h2o_socket_ssl_destroy_session_cache_entry(h2o_iovec_t value);
 /**
  * registers the protocol list to be used for ALPN
  */

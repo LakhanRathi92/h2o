@@ -21,7 +21,12 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#ifndef _MSC_VER
 #include <dirent.h>
+#else
+#include "h2o/dirent.h"
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -30,7 +35,22 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#ifndef _MSC_VER
 #include <unistd.h>
+#else
+#include <stdio.h>
+#include <io.h>
+
+int pread(unsigned int fd, char *buf, size_t count, int offset)
+{
+	if (_lseek(fd, offset, SEEK_SET) != offset) {
+		return -1;
+	}
+	return read(fd, buf, count);
+}
+
+
+#endif
 
 #include "h2o.h"
 
@@ -123,7 +143,6 @@ static void do_proceed(h2o_generator_t *_self, h2o_req_t *req)
     if (rlen > MAX_BUF_SIZE)
         rlen = MAX_BUF_SIZE;
     while ((rret = pread(self->file.ref->fd, self->buf, rlen, self->file.off)) == -1 && errno == EINTR)
-        ;
     if (rret == -1) {
         h2o_send(req, NULL, 0, H2O_SEND_STATE_ERROR);
         do_close(&self->super, req);
@@ -243,7 +262,7 @@ static struct st_h2o_sendfile_generator_t *create_generator(h2o_req_t *req, cons
 #define TRY_VARIANT(mask, enc, ext)                                                                                                \
     if ((compressible_types & mask) != 0) {                                                                                        \
         strcpy(variant_path + path_len, ext);                                                                                      \
-        if ((fileref = h2o_filecache_open_file(req->conn->ctx->filecache, variant_path, O_RDONLY | O_CLOEXEC)) != NULL) {          \
+        if ((fileref = h2o_filecache_open_file(req->conn->ctx->filecache, variant_path, O_RDONLY)) != NULL) {          \
             content_encoding = h2o_iovec_init(enc, sizeof(enc) - 1);                                                               \
             goto Opened;                                                                                                           \
         }                                                                                                                          \
@@ -253,9 +272,23 @@ static struct st_h2o_sendfile_generator_t *create_generator(h2o_req_t *req, cons
 #undef TRY_VARIANT
         }
     }
-    if ((fileref = h2o_filecache_open_file(req->conn->ctx->filecache, path, O_RDONLY | O_CLOEXEC)) == NULL)
-        return NULL;
+    if ((fileref = h2o_filecache_open_file(req->conn->ctx->filecache, path, O_RDONLY)) == NULL)
+	{ 
+#ifdef _MSC_VER
+		//check directory from path.
+		struct stat status;
+		stat(path, &status);
+		if (S_ISDIR(status.st_mode)) {
+			*is_dir = 1;
+		}
+#endif
+		return NULL;
+	}
+#ifndef _MSC_VER
     content_encoding = (h2o_iovec_t){NULL};
+#else
+	content_encoding = (h2o_iovec_t) { 0 };
+#endif
 
 Opened:
     if (S_ISDIR(fileref->st.st_mode)) {
@@ -710,7 +743,11 @@ static int on_req(h2o_handler_t *_self, h2o_req_t *req)
 
     /* build path (still unterminated at the end of the block) */
     req_path_prefix = self->conf_path.len;
+#ifndef _MSC_VER
     rpath = alloca(self->real_path.len + (req->path_normalized.len - req_path_prefix) + self->max_index_file_len + 1);
+#else
+	rpath = _alloca(self->real_path.len + (req->path_normalized.len - req_path_prefix) + self->max_index_file_len + 1);
+#endif
     rpath_len = 0;
     memcpy(rpath + rpath_len, self->real_path.base, self->real_path.len);
     rpath_len += self->real_path.len;

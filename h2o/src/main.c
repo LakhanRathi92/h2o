@@ -816,27 +816,19 @@ static int open_tcp_listener(h2o_configurator_command_t *cmd, yoml_t *node, cons
             goto Error;
     }
 #endif
-    if (bind(fd, addr, addrlen) != 0)
-        goto Error;
-    if (listen(fd, H2O_SOMAXCONN) != 0)
-        goto Error;
-
     /* set TCP_FASTOPEN; when tfo_queues is zero TFO is always disabled */
     if (conf.tfo_queues > 0) {
 #ifdef TCP_FASTOPEN
-        int tfo_queues;
-#ifdef __APPLE__
-        /* In OS X, the option value for TCP_FASTOPEN must be 1 if is's enabled */
-        tfo_queues = 1;
-#else
-        tfo_queues = conf.tfo_queues;
-#endif
-        if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN, (const void *)&tfo_queues, sizeof(tfo_queues)) != 0)
+        if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN, (const void *)&conf.tfo_queues, sizeof(conf.tfo_queues)) != 0)
             fprintf(stderr, "[warning] failed to set TCP_FASTOPEN:%s\n", strerror(errno));
 #else
         assert(!"conf.tfo_queues not zero on platform without TCP_FASTOPEN");
 #endif
     }
+    if (bind(fd, addr, addrlen) != 0)
+        goto Error;
+    if (listen(fd, H2O_SOMAXCONN) != 0)
+        goto Error;
 
     return fd;
 
@@ -1411,7 +1403,11 @@ static void on_server_notification(h2o_multithread_receiver_t *receiver, h2o_lin
 H2O_NORETURN static void *run_loop(void *_thread_index)
 {
     size_t thread_index = (size_t)_thread_index;
+#ifndef _MSC_VER
     struct listener_ctx_t *listeners = alloca(sizeof(*listeners) * conf.num_listeners);
+#else
+	struct listener_ctx_t *listeners = _alloca(sizeof(*listeners) * conf.num_listeners);
+#endif
     size_t i;
 
     h2o_context_init(&conf.threads[thread_index].ctx, h2o_evloop_create(), &conf.globalconf);
@@ -1829,7 +1825,7 @@ int main(int argc, char **argv)
                        "  h2o [options]\n"
                        "\n"
                        "Options:\n"
-                       "  -c, --conf FILE    configuration file (default: %s)\n"
+                       "  -c, --conf FILE    configuration file (default: h2o.conf)\n"
                        "  -m, --mode <mode>  specifies one of the following mode\n"
                        "                     - worker: invoked process handles incoming connections\n"
                        "                               (default)\n"
@@ -1849,8 +1845,7 @@ int main(int argc, char **argv)
                        "\n"
                        "Please refer to the documentation under `share/doc/h2o` (or available online at\n"
                        "http://h2o.examp1e.net/) for how to configure the server.\n"
-                       "\n",
-                       H2O_TO_STR(H2O_CONFIG_PATH));
+                       "\n");
                 exit(0);
                 break;
             case ':':
@@ -1872,7 +1867,11 @@ int main(int argc, char **argv)
         size_t i;
         for (i = 0; i != conf.server_starter.num_fds; ++i)
             set_cloexec(conf.server_starter.fds[i]);
+#ifndef _MSC_VER
         conf.server_starter.bound_fd_map = alloca(conf.server_starter.num_fds);
+#else
+		conf.server_starter.bound_fd_map = _alloca(conf.server_starter.num_fds);
+#endif
         memset(conf.server_starter.bound_fd_map, 0, conf.server_starter.num_fds);
         conf.server_starter.env_var = getenv("SERVER_STARTER_PORT");
     }
@@ -2031,7 +2030,11 @@ int main(int argc, char **argv)
     assert(conf.num_threads != 0);
 
     /* start the threads */
+#ifndef _MSC_VER
     conf.threads = alloca(sizeof(conf.threads[0]) * conf.num_threads);
+#else
+	conf.threads = _alloca(sizeof(conf.threads[0]) * conf.num_threads);
+#endif
     size_t i;
     for (i = 1; i != conf.num_threads; ++i) {
         pthread_t tid;

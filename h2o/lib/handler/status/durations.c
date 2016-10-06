@@ -23,8 +23,9 @@
 #include "h2o.h"
 #include "gkc.h"
 #include <inttypes.h>
+#ifndef _MSC_VER
 #include <pthread.h>
-
+#endif
 #define GK_EPSILON 0.01
 
 struct st_duration_stats_t {
@@ -39,7 +40,11 @@ struct st_duration_stats_t {
 
 struct st_duration_agg_stats_t {
     struct st_duration_stats_t stats;
-    pthread_mutex_t mutex;
+#ifndef _MSC_VER
+	pthread_mutex_t mutex;
+#else
+	uv_mutex_t mutex;
+#endif
 };
 
 static h2o_logger_t *durations_logger;
@@ -48,7 +53,12 @@ static void durations_status_per_thread(void *priv, h2o_context_t *ctx)
     struct st_duration_agg_stats_t *agg_stats = priv;
     if (durations_logger) {
         struct st_duration_stats_t *ctx_stats = h2o_context_get_logger_context(ctx, durations_logger);
+#ifndef _MSC_VER
         pthread_mutex_lock(&agg_stats->mutex);
+#else
+		uv_mutex_lock(&agg_stats->mutex);
+#endif
+
 #define ADD_DURATION(x)                                                                                                            \
     do {                                                                                                                           \
         struct gkc_summary *tmp;                                                                                                   \
@@ -64,7 +74,12 @@ static void durations_status_per_thread(void *priv, h2o_context_t *ctx)
         ADD_DURATION(response_time);
         ADD_DURATION(duration);
 #undef ADD_DURATION
+
+#ifndef _MSC_VER
         pthread_mutex_unlock(&agg_stats->mutex);
+#else
+		uv_mutex_unlock(&agg_stats->mutex);
+#endif
     }
 }
 
@@ -86,8 +101,11 @@ static void *durations_status_init(void)
     agg_stats = h2o_mem_alloc(sizeof(*agg_stats));
 
     duration_stats_init(&agg_stats->stats);
+#ifndef _MSC_VER
     pthread_mutex_init(&agg_stats->mutex, NULL);
-
+#else
+	uv_mutex_init(&agg_stats->mutex);
+#endif
     return agg_stats;
 }
 
@@ -109,11 +127,11 @@ static h2o_iovec_t durations_status_final(void *priv, h2o_globalconf_t *gconf, h
 
 #define BUFSIZE 16384
 #define DURATION_FMT(x)                                                                                                            \
-    " \"" x "-0\": %lu,\n"                                                                                                         \
-    " \"" x "-25\": %lu,\n"                                                                                                        \
-    " \"" x "-50\": %lu,\n"                                                                                                        \
-    " \"" x "-75\": %lu,\n"                                                                                                        \
-    " \"" x "-99\": %lu\n"
+    " \"" H2O_TO_STR(x) "-0\": %lu,\n"                                                                                             \
+                        " \"" H2O_TO_STR(x) "-25\": %lu,\n"                                                                        \
+                                            " \"" H2O_TO_STR(x) "-50\": %lu,\n"                                                    \
+                                                                " \"" H2O_TO_STR(x) "-75\": %lu,\n"                                \
+                                                                                    " \"" H2O_TO_STR(x) "-99\": %lu\n"
 #define DURATION_VALS(x)                                                                                                           \
     gkc_query(agg_stats->stats.x, 0), gkc_query(agg_stats->stats.x, 0.25), gkc_query(agg_stats->stats.x, 0.5),                     \
         gkc_query(agg_stats->stats.x, 0.75), gkc_query(agg_stats->stats.x, 0.99)
@@ -121,8 +139,8 @@ static h2o_iovec_t durations_status_final(void *priv, h2o_globalconf_t *gconf, h
     ret.base = h2o_mem_alloc_pool(&req->pool, BUFSIZE);
     ret.len = snprintf(
         ret.base, BUFSIZE,
-        ",\n" DURATION_FMT("connect-time") "," DURATION_FMT("header-time") "," DURATION_FMT("body-time") "," DURATION_FMT(
-            "request-total-time") "," DURATION_FMT("process-time") "," DURATION_FMT("response-time") "," DURATION_FMT("duration"),
+        ",\n" DURATION_FMT(connect - time) "," DURATION_FMT(header - time) "," DURATION_FMT(body - time) "," DURATION_FMT(
+            request - total - time) "," DURATION_FMT(process - time) "," DURATION_FMT(response - time) "," DURATION_FMT(duration),
         DURATION_VALS(connect_time), DURATION_VALS(header_time), DURATION_VALS(body_time), DURATION_VALS(request_total_time),
         DURATION_VALS(process_time), DURATION_VALS(response_time), DURATION_VALS(duration));
 
@@ -131,11 +149,16 @@ static h2o_iovec_t durations_status_final(void *priv, h2o_globalconf_t *gconf, h
 #undef DURATION_VALS
 
     duration_stats_free(&agg_stats->stats);
+#ifndef _MSC_VER
     pthread_mutex_destroy(&agg_stats->mutex);
-
+#else
+	uv_mutex_destroy(&agg_stats->mutex);
+#endif
     free(agg_stats);
     return ret;
 }
+
+
 
 static void stat_access(h2o_logger_t *_self, h2o_req_t *req)
 {
@@ -185,7 +208,7 @@ void h2o_duration_stats_register(h2o_globalconf_t *conf)
     durations_logger = logger = h2o_mem_alloc(sizeof(*logger));
     memset(logger, 0, sizeof(*logger));
     logger->_config_slot = conf->_num_config_slots++;
-    logger->log_access = stat_access;
+	logger->log_access = stat_access;
     logger->on_context_init = on_context_init;
     logger->on_context_dispose = on_context_dispose;
 
@@ -202,6 +225,12 @@ void h2o_duration_stats_register(h2o_globalconf_t *conf)
     }
 }
 
+#ifndef _MSC_VER
 h2o_status_handler_t durations_status_handler = {
     {H2O_STRLIT("durations")}, durations_status_init, durations_status_per_thread, durations_status_final,
 };
+#else
+h2o_status_handler_t durations_status_handler = {
+	{ H2O_MY_STRLIT("durations") }, durations_status_init, durations_status_per_thread, durations_status_final,
+}; 
+#endif

@@ -20,6 +20,9 @@
  * IN THE SOFTWARE.
  */
 
+#include <io.h> //_dup()
+
+
 struct st_h2o_uv_socket_t {
     h2o_socket_t super;
     struct {
@@ -39,6 +42,7 @@ static void alloc_inbuf_tcp(uv_handle_t *handle, size_t suggested_size, uv_buf_t
     struct st_h2o_uv_socket_t *sock = handle->data;
 
     h2o_iovec_t buf = h2o_buffer_reserve(&sock->super.input, 4096);
+	
     memcpy(_buf, &buf, sizeof(buf));
 }
 
@@ -156,16 +160,22 @@ int do_export(h2o_socket_t *_sock, h2o_socket_export_t *info)
 {
     struct st_h2o_uv_socket_t *sock = (void *)_sock;
     uv_os_fd_t fd;
-
-    if (uv_fileno((uv_handle_t *)sock->uv.stream, &fd) != 0)
+	if (uv_fileno((uv_handle_t *)sock->uv.stream, &fd) != 0)
         return -1;
     /* FIXME: consider how to overcome the epoll(2) problem; man says,
      * "even after a file descriptor that is part of an epoll set has been closed,
      * events may be reported for that file descriptor if other file descriptors
      * referring to the same underlying file description remain open"
      */
+#ifndef _MSC_VER
     if ((info->fd = dup(fd)) == -1)
-        return -1;
+		return -1;
+#else 
+	info->fd = dup(fd);
+//	dup2(fd, info->fd);
+	if ((info->fd == -1))
+		return -1;
+#endif 
     return 0;
 }
 
@@ -197,8 +207,6 @@ h2o_socket_t *h2o_uv_socket_create(uv_stream_t *stream, uv_close_cb close_cb)
 
 static void on_connect(uv_connect_t *conn, int status)
 {
-    if (status == UV_ECANCELED)
-        return;
     struct st_h2o_uv_socket_t *sock = H2O_STRUCT_FROM_MEMBER(struct st_h2o_uv_socket_t, _creq, conn);
     h2o_socket_cb cb = sock->super._cb.write;
     sock->super._cb.write = NULL;

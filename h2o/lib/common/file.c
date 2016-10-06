@@ -25,20 +25,50 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include "h2o/file.h"
+
+#ifndef _MSC_VER
 #include <sys/uio.h>
 #include <unistd.h>
-#include "h2o/file.h"
+#else
+#include<io.h>
+#if !defined(_SSIZE_T_) && !defined(_SSIZE_T_DEFINED)
+typedef intptr_t ssize_t;
+# define _SSIZE_T_
+# define _SSIZE_T_DEFINED
+#endif
+#endif
 
 h2o_iovec_t h2o_file_read(const char *fn)
 {
+#ifndef _MSC_VER
     int fd;
-    struct stat st;
-    h2o_iovec_t ret = {NULL};
+	struct stat st;
+	h2o_iovec_t ret = { NULL };
+#else
+	int fd = -1;
+	FILE *filePoint;
+	struct _stat st;
+	h2o_iovec_t ret = { 0 };
+#endif
+
+	
 
     /* open */
+#ifndef _MSC_VER
     if ((fd = open(fn, O_RDONLY | O_CLOEXEC)) == -1)
-        goto Error;
+		goto Error;
+#else
+	if ((filePoint = fopen(fn, "rbN")) == NULL)
+		goto Error;
+#endif
+
+#ifndef _MSC_VER
     fstat(fd, &st);
+#else
+	_stat(fn, &st);
+#endif
+
     /* allocate memory */
     if (st.st_size > SIZE_MAX) {
         errno = ENOMEM;
@@ -49,19 +79,39 @@ h2o_iovec_t h2o_file_read(const char *fn)
     /* read */
     while (ret.len != (size_t)st.st_size) {
         ssize_t r;
+#ifndef _MSC_VER
         while ((r = read(fd, ret.base + ret.len, (size_t)st.st_size - ret.len)) == -1 && errno == EINTR)
             ;
+#else
+		fd = fileno(filePoint);
+		while ((r = _read(fd, ret.base + ret.len, (size_t)st.st_size - ret.len)) == -1 && errno == EINTR)
+			;
+#endif
         if (r <= 0)
             goto Error;
         ret.len += r;
     }
     /* close */
+#ifndef _MSC_VER
     close(fd);
+#else
+	fclose(filePoint);
+//	_close(fd);
+#endif
+
     return ret;
 
 Error:
-    if (fd != -1)
-        close(fd);
+	if (fd != -1)
+#ifndef _MSC_VER
+		close(fd);
+#else
+		_close(fd);
+#endif
     free(ret.base);
+#ifndef _MSC_VER
     return (h2o_iovec_t){NULL};
+#else
+	return (h2o_iovec_t) { 0 };
+#endif
 }

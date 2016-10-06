@@ -27,8 +27,31 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+
+#ifdef  _WIN32
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+#pragma comment(lib, "Ws2_32.lib")
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <Winbase.h> 
+#else
+#include <stdlib.h>
+#include <unistd.h>
+#endif
+
+
+
+#ifndef _MSC_VER
 #include <sys/mman.h>
 #include <unistd.h>
+#else
+#include <io.h> //_close
+#include "h2o/mman.h"
+#endif
 #include "h2o/memory.h"
 
 #if defined(__linux__)
@@ -40,6 +63,38 @@
 #else
 #define USE_POSIX_FALLOCATE 0
 #endif
+
+#ifdef _MSC_VER
+int mkstemp(char* temp) {
+	char *fnTemplate = "fnXXXXXX"; //Last six characters should be like this
+	int sizeInChars;
+	sizeInChars = strnlen(temp, 9) + 1;
+	FILE *fp;
+	errno_t err = _mktemp_s(temp, sizeInChars); //creates a file name...
+	if (err != 0)
+		return -1;
+	else //File name successfully created
+	{
+		if (fp = fopen(temp, "ab+")) // create the file with read/write permission.
+			return _fileno(fp);	//Successful return file descriptor.					 
+		else
+			return -1;
+		fclose(fp);
+	}
+}
+//getpagesize for windows
+long getpagesize(void) {
+	static long g_pagesize = 0;
+	if (!g_pagesize) {
+		SYSTEM_INFO system_info;
+		GetSystemInfo(&system_info);
+		g_pagesize = system_info.dwPageSize;
+	}
+	return g_pagesize;
+}
+
+#endif
+
 
 struct st_h2o_mem_recycle_chunk_t {
     struct st_h2o_mem_recycle_chunk_t *next;
@@ -64,7 +119,13 @@ struct st_h2o_mem_pool_shared_ref_t {
 
 void *(*h2o_mem__set_secure)(void *, int, size_t) = memset;
 
-static __thread h2o_mem_recycle_t mempool_allocator = {16};
+//static __thread h2o_mem_recycle_t mempool_allocator = {16};
+#ifdef _WIN32
+static h2o_mem_recycle_t mempool_allocator = { 16 };
+#else
+static __thread h2o_mem_recycle_t mempool_allocator = { 16 };
+#endif
+
 
 void h2o__fatal(const char *msg)
 {
@@ -198,7 +259,11 @@ void h2o_buffer__do_free(h2o_buffer_t *buffer)
     if (buffer->capacity == buffer->_prototype->_initial_buf.capacity) {
         h2o_mem_free_recycle(&buffer->_prototype->allocator, buffer);
     } else if (buffer->_fd != -1) {
+#ifndef _MSC_VER
         close(buffer->_fd);
+#else
+		_close(buffer->_fd);
+#endif
         munmap((void *)buffer, topagesize(buffer->capacity));
     } else {
         free(buffer);
@@ -241,13 +306,21 @@ h2o_iovec_t h2o_buffer_reserve(h2o_buffer_t **_inbuf, size_t min_guarantee)
                 int fd;
                 h2o_buffer_t *newp;
                 if (inbuf->_fd == -1) {
+#ifndef _MSC_VER
                     char *tmpfn = alloca(strlen(inbuf->_prototype->mmap_settings->fn_template) + 1);
+#else
+					char *tmpfn = _alloca(strlen(inbuf->_prototype->mmap_settings->fn_template) + 1);
+#endif
                     strcpy(tmpfn, inbuf->_prototype->mmap_settings->fn_template);
                     if ((fd = mkstemp(tmpfn)) == -1) {
                         fprintf(stderr, "failed to create temporary file:%s:%s\n", tmpfn, strerror(errno));
                         goto MapError;
                     }
+#ifndef _MSC_VER
                     unlink(tmpfn);
+#else
+					_unlink(tmpfn);
+#endif
                 } else {
                     fd = inbuf->_fd;
                 }
@@ -255,7 +328,12 @@ h2o_iovec_t h2o_buffer_reserve(h2o_buffer_t **_inbuf, size_t min_guarantee)
 #if USE_POSIX_FALLOCATE
                 fallocate_ret = posix_fallocate(fd, 0, new_allocsize);
 #else
+#ifndef _MSC_VER
                 fallocate_ret = ftruncate(fd, new_allocsize);
+#else
+				fallocate_ret = _chsize(fd, new_allocsize);
+#endif
+
 #endif
                 if (fallocate_ret != 0) {
                     perror("failed to resize temporary file");

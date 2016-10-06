@@ -23,7 +23,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stddef.h>
+
+#ifndef _MSC_VER
 #include <unistd.h>
+#else
+#include <io.h>
+#endif
+
 #include "khash.h"
 #include "h2o/memory.h"
 #include "h2o/filecache.h"
@@ -115,18 +121,39 @@ h2o_filecache_ref_t *h2o_filecache_open_file(h2o_filecache_t *cache, const char 
     }
 
     /* open the file, or memoize the error */
+//#ifndef _MSC_VER
     if ((ref->fd = open(path, oflag)) != -1 && fstat(ref->fd, &ref->st) == 0) {
-        ref->_last_modified.str[0] = '\0';
+       ref->_last_modified.str[0] = '\0';
         ref->_etag.len = 0;
-    } else {
+    } else {		//introduce else if, and check for directory there?
         ref->open_err = errno;
         if (ref->fd != -1) {
             close(ref->fd);
             ref->fd = -1;
         }
     }
+//#else
+//	if ((ref->fd = open(path, oflag)) != -1 && _stat(path, &ref->st) == 0) { //will not calculate _stat when open returns -1.
+//		ref->_last_modified.str[0] = '\0';
+//		ref->_etag.len = 0;
+//	}
+//	else {		
+//		ref->open_err = errno;
+//		if (ref->fd != -1) {
+//			close(ref->fd);
+//			ref->fd = -1;
+//		}
+//	}
+//#endif
 
 Exit:
+//#ifdef _MSC_VER
+	//_stat doesn't get calculated when open fails. 
+//	if (_stat(path, &ref->st) == 0) {
+//		ref->_last_modified.str[0] = '\0';
+//		ref->_etag.len = 0;
+//	}
+//#endif
     /* if the cache entry retains an error, return it instead of the reference */
     if (ref->fd == -1) {
         errno = ref->open_err;
@@ -152,7 +179,11 @@ struct tm *h2o_filecache_get_last_modified(h2o_filecache_ref_t *ref, char *outbu
 {
     assert(ref->fd != -1);
     if (ref->_last_modified.str[0] == '\0') {
+#ifndef _MSC_VER
         gmtime_r(&ref->st.st_mtime, &ref->_last_modified.gm);
+#else
+		gmtime_s(&ref->_last_modified.gm, &ref->st.st_mtime);
+#endif
         h2o_time2str_rfc1123(ref->_last_modified.str, &ref->_last_modified.gm);
     }
     if (outbuf != NULL)

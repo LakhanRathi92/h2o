@@ -60,7 +60,6 @@ enum {
     ELEMENT_TYPE_PROCESS_TIME,               /* %{process-time}x */
     ELEMENT_TYPE_RESPONSE_TIME,              /* %{response-total-time}x */
     ELEMENT_TYPE_DURATION,                   /* %{duration}x */
-    ELEMENT_TYPE_ERROR,                      /* %{error}x */
     ELEMENT_TYPE_PROTOCOL_SPECIFIC,          /* %{protocol-specific...}x */
     NUM_ELEMENT_TYPES
 };
@@ -171,7 +170,6 @@ h2o_logconf_t *h2o_logconf_compile(const char *fmt, int escape, char *errbuf)
                     MAP_EXT_TO_TYPE("process-time", ELEMENT_TYPE_PROCESS_TIME);
                     MAP_EXT_TO_TYPE("response-time", ELEMENT_TYPE_RESPONSE_TIME);
                     MAP_EXT_TO_TYPE("duration", ELEMENT_TYPE_DURATION);
-                    MAP_EXT_TO_TYPE("error", ELEMENT_TYPE_ERROR);
                     MAP_EXT_TO_PROTO("http1.request-index", http1.request_index);
                     MAP_EXT_TO_PROTO("http2.stream-id", http2.stream_id);
                     MAP_EXT_TO_PROTO("http2.priority.received", http2.priority_received);
@@ -363,7 +361,7 @@ Fail:
         if (!h2o_time_compute_##name(req, &delta_usec)) {                                                                          \
             *pos++ = '-';                                                                                                          \
         } else {                                                                                                                   \
-            int32_t delta_sec = (int32_t)(delta_usec / (1000 * 1000));                                                             \
+            int32_t delta_sec = delta_usec / (1000 * 1000);                                                                        \
             delta_usec -= ((int64_t)delta_sec * (1000 * 1000));                                                                    \
             pos += sprintf(pos, "%" PRId32, delta_sec);                                                                            \
             if (delta_usec != 0) {                                                                                                 \
@@ -521,7 +519,11 @@ char *h2o_log_request(h2o_logconf_t *logconf, h2o_req_t *req, size_t *len, char 
             {
                 size_t bufsz, len;
                 if (localt.tm_year == 0)
+#ifndef _MSC_VER
                     localtime_r(&req->processed_at.at.tv_sec, &localt);
+#else
+					localtime_s(&localt, &req->processed_at.at.tv_sec);
+#endif
                 for (bufsz = 128;; bufsz *= 2) {
                     RESERVE(bufsz);
                     if ((len = strftime(pos, bufsz, element->data.name.base, &localt)) != 0)
@@ -648,20 +650,6 @@ char *h2o_log_request(h2o_logconf_t *logconf, h2o_req_t *req, size_t *len, char 
             RESERVE(DURATION_MAX_LEN);
             APPEND_DURATION(pos, duration);
             break;
-
-        case ELEMENT_TYPE_ERROR: {
-            size_t i;
-            for (i = 0; i != req->error_logs.size; ++i) {
-                h2o_req_error_log_t *log = req->error_logs.entries + i;
-                size_t module_len = strlen(log->module);
-                RESERVE(sizeof("[] ") - 1 + module_len + log->msg.len * unsafe_factor);
-                *pos++ = '[';
-                pos = append_safe_string(pos, log->module, module_len);
-                *pos++ = ']';
-                *pos++ = ' ';
-                pos = append_unsafe_string(pos, log->msg.base, log->msg.len);
-            }
-        } break;
 
         case ELEMENT_TYPE_PROTOCOL_SPECIFIC: {
             h2o_iovec_t (*cb)(h2o_req_t *) = req->conn->callbacks->log_.callbacks[element->data.protocol_specific_callback_index];

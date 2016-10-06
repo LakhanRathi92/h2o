@@ -21,12 +21,15 @@
  */
 #include <assert.h>
 #include <errno.h>
+#ifndef _MSC_VER
 #include <netdb.h>
-#include <stdlib.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/un.h>
 #include <netinet/in.h>
+#else
+#endif
+#include <stdlib.h>
+#include <sys/types.h>
 #include "h2o/hostinfo.h"
 #include "h2o/linklist.h"
 #include "h2o/socketpool.h"
@@ -69,7 +72,11 @@ static void destroy_expired(h2o_socketpool_t *pool)
         if (entry->added_at > expire_before)
             break;
         destroy_attached(entry);
+#ifndef _MSC_VER
         __sync_sub_and_fetch(&pool->_shared.count, 1);
+#else
+		InterlockedDecrement(&pool->_shared.count);
+#endif
     }
 }
 
@@ -79,10 +86,17 @@ static void on_timeout(h2o_timeout_entry_t *timeout_entry)
      * check can be (should be) performed in the `connect` fuction as well
      */
     h2o_socketpool_t *pool = H2O_STRUCT_FROM_MEMBER(h2o_socketpool_t, _interval_cb.entry, timeout_entry);
-
+#ifndef _MSC_VER
     if (pthread_mutex_trylock(&pool->_shared.mutex) == 0) {
+#else
+	if (uv_mutex_trylock(&pool->_shared.mutex) == 0) {
+#endif
         destroy_expired(pool);
+#ifndef _MSC_VER
         pthread_mutex_unlock(&pool->_shared.mutex);
+#else
+		uv_mutex_unlock(&pool->_shared.mutex);
+#endif
     }
 
     h2o_timeout_link(pool->_interval_cb.loop, &pool->_interval_cb.timeout, &pool->_interval_cb.entry);
@@ -97,8 +111,11 @@ static void common_init(h2o_socketpool_t *pool, h2o_socketpool_type_t type, h2o_
     pool->is_ssl = is_ssl;
     pool->capacity = capacity;
     pool->timeout = UINT64_MAX;
-
+#ifndef _MSC_VER
     pthread_mutex_init(&pool->_shared.mutex, NULL);
+#else
+	uv_mutex_init(&pool->_shared.mutex);
+#endif
     h2o_linklist_init_anchor(&pool->_shared.sockets);
 }
 
@@ -113,8 +130,12 @@ void h2o_socketpool_init_by_address(h2o_socketpool_t *pool, struct sockaddr *sa,
         if (sa->sa_family != AF_UNIX)
             h2o_fatal("failed to convert a non-unix socket address to a numerical representation");
         /* use the sockaddr_un::sun_path as the SNI indicator (is that the right thing to do?) */
-        strcpy(host, ((struct sockaddr_un *)sa)->sun_path);
-        host_len = strlen(host);
+#ifndef _MSC_VER
+		strcpy(host, ((struct sockaddr_un *)sa)->sun_path);
+#else
+		strcpy(host, ((struct sockaddr *)sa)->sa_data);
+#endif
+		host_len = strlen(host);
     }
 
     common_init(pool, H2O_SOCKETPOOL_TYPE_SOCKADDR, h2o_iovec_init(host, host_len), is_ssl, capacity);
@@ -141,14 +162,27 @@ void h2o_socketpool_init_by_hostport(h2o_socketpool_t *pool, h2o_iovec_t host, u
 
 void h2o_socketpool_dispose(h2o_socketpool_t *pool)
 {
+#ifndef _MSC_VER
     pthread_mutex_lock(&pool->_shared.mutex);
+#else
+	uv_mutex_lock(&pool->_shared.mutex);
+#endif
     while (!h2o_linklist_is_empty(&pool->_shared.sockets)) {
         struct pool_entry_t *entry = H2O_STRUCT_FROM_MEMBER(struct pool_entry_t, link, pool->_shared.sockets.next);
         destroy_attached(entry);
-        __sync_sub_and_fetch(&pool->_shared.count, 1);
+#ifndef _MSC_VER
+		__sync_sub_and_fetch(&pool->_shared.count, 1);
+#else
+		InterlockedDecrement(&pool->_shared.count);
+#endif
     }
+#ifndef _MSC_VER
     pthread_mutex_unlock(&pool->_shared.mutex);
     pthread_mutex_destroy(&pool->_shared.mutex);
+#else
+	uv_mutex_unlock(&pool->_shared.mutex);
+	uv_mutex_destroy(&pool->_shared.mutex);
+#endif
 
     if (pool->_interval_cb.loop != NULL) {
         h2o_timeout_unlink(&pool->_interval_cb.entry);
@@ -203,14 +237,22 @@ static void on_connect(h2o_socket_t *sock, const char *err)
 static void on_close(void *data)
 {
     h2o_socketpool_t *pool = data;
+#ifndef _MSC_VER
     __sync_sub_and_fetch(&pool->_shared.count, 1);
+#else
+	InterlockedDecrement(&pool->_shared.count);
+#endif
 }
 
 static void start_connect(h2o_socketpool_connect_request_t *req, struct sockaddr *addr, socklen_t addrlen)
 {
     req->sock = h2o_socket_connect(req->loop, addr, addrlen, on_connect);
     if (req->sock == NULL) {
+#ifndef _MSC_VER
         __sync_sub_and_fetch(&req->pool->_shared.count, 1);
+#else
+		InterlockedDecrement(&req->pool->_shared.count);
+#endif
         call_connect_cb(req, "failed to connect to host");
         return;
     }
@@ -227,7 +269,11 @@ static void on_getaddr(h2o_hostinfo_getaddr_req_t *getaddr_req, const char *errs
     req->getaddr_req = NULL;
 
     if (errstr != NULL) {
+#ifndef _MSC_VER
         __sync_sub_and_fetch(&req->pool->_shared.count, 1);
+#else
+		InterlockedDecrement(&req->pool->_shared.count);
+#endif
         call_connect_cb(req, errstr);
         return;
     }
@@ -245,14 +291,22 @@ void h2o_socketpool_connect(h2o_socketpool_connect_request_t **_req, h2o_socketp
         *_req = NULL;
 
     /* fetch an entry and return it */
+#ifndef _MSC_VER
     pthread_mutex_lock(&pool->_shared.mutex);
+#else
+	uv_mutex_lock(&pool->_shared.mutex);
+#endif
     destroy_expired(pool);
     while (1) {
         if (h2o_linklist_is_empty(&pool->_shared.sockets))
             break;
         entry = H2O_STRUCT_FROM_MEMBER(struct pool_entry_t, link, pool->_shared.sockets.next);
         h2o_linklist_unlink(&entry->link);
+#ifndef _MSC_VER
         pthread_mutex_unlock(&pool->_shared.mutex);
+#else
+		uv_mutex_unlock(&pool->_shared.mutex);
+#endif
 
         /* test if the connection is still alive */
         char buf[1];
@@ -270,20 +324,41 @@ void h2o_socketpool_connect(h2o_socketpool_connect_request_t **_req, h2o_socketp
         /* connection is dead, report, close, and retry */
         if (rret <= 0) {
             static long counter = 0;
-            if (__sync_fetch_and_add(&counter, 1) == 0)
+#ifndef _MSC_VER
+            if (__sync_fetch_and_add(&counter, 1) == 0) //returns counter previous value
+#else
+			long preValue = counter;
+			long xTmp = InterlockedIncrement(&counter);
+			if (preValue == 0)
+#endif
                 fprintf(stderr, "[WARN] detected close by upstream before the expected timeout (see issue #679)\n");
         } else {
             static long counter = 0;
+#ifndef _MSC_VER
             if (__sync_fetch_and_add(&counter, 1) == 0)
+#else
+			if (InterlockedIncrement(&counter) == 1) // after increment value will be 1. 
+#endif
                 fprintf(stderr, "[WARN] unexpectedly received data to a pooled socket (see issue #679)\n");
         }
         destroy_detached(entry);
+#ifndef _MSC_VER
         pthread_mutex_lock(&pool->_shared.mutex);
+#else
+		uv_mutex_lock(&pool->_shared.mutex);
+#endif
     }
+#ifndef _MSC_VER
     pthread_mutex_unlock(&pool->_shared.mutex);
-
+#else
+	uv_mutex_unlock(&pool->_shared.mutex);
+#endif
     /* FIXME repsect `capacity` */
+#ifndef _MSC_VER
     __sync_add_and_fetch(&pool->_shared.count, 1);
+#else
+	InterlockedIncrement(&pool->_shared.count);
+#endif
 
     /* prepare request object */
     h2o_socketpool_connect_request_t *req = h2o_mem_alloc(sizeof(*req));
@@ -323,20 +398,29 @@ int h2o_socketpool_return(h2o_socketpool_t *pool, h2o_socket_t *sock)
     assert(sock->on_close.data == pool);
     sock->on_close.cb = NULL;
     sock->on_close.data = NULL;
-
-    entry = h2o_mem_alloc(sizeof(*entry));
+	entry = h2o_mem_alloc(sizeof(*entry));
     if (h2o_socket_export(sock, &entry->sockinfo) != 0) {
         free(entry);
+#ifndef _MSC_VER
         __sync_sub_and_fetch(&pool->_shared.count, 1);
+#else
+		InterlockedDecrement(&pool->_shared.count);
+#endif
         return -1;
     }
     memset(&entry->link, 0, sizeof(entry->link));
     entry->added_at = h2o_now(h2o_socket_get_loop(sock));
-
+#ifndef _MSC_VER
     pthread_mutex_lock(&pool->_shared.mutex);
     destroy_expired(pool);
     h2o_linklist_insert(&pool->_shared.sockets, &entry->link);
     pthread_mutex_unlock(&pool->_shared.mutex);
+#else
+	uv_mutex_lock(&pool->_shared.mutex);
+	destroy_expired(pool);
+	h2o_linklist_insert(&pool->_shared.sockets, &entry->link);
+	uv_mutex_unlock(&pool->_shared.mutex);
+#endif
 
     return 0;
 }

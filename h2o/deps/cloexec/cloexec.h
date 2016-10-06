@@ -22,12 +22,18 @@
 #ifndef CLOEXEC_H
 #define CLOEXEC_H
 
+#include <sys/types.h>
+#ifndef _MSC_VER
 #include <pthread.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
-
 extern pthread_mutex_t cloexec_mutex;
+#else
+#include <uv.h>
+#include <io.h>
+extern uv_mutex_t cloexec_mutex;
+#endif
+
 
 int cloexec_accept(int socket, struct sockaddr *addr, socklen_t *addrlen);
 int cloexec_pipe(int fds[2]);

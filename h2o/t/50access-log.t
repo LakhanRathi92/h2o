@@ -20,11 +20,6 @@ hosts:
     paths:
       /:
         file.dir: @{[ DOC_ROOT ]}
-      /fastcgi:
-        fastcgi.connect:
-          port: /nonexistent
-          type: unix
-        error-log.emit-request-errors: OFF
     access-log:
       format: "$format"
       path: $tempdir/access_log
@@ -63,7 +58,7 @@ subtest "strftime" => sub {
             system("curl --silent http://127.0.0.1:$server->{port}/ > /dev/null");
         },
         '%{%Y-%m-%dT%H:%M:%S}t',
-        qr{^20[0-9]{2}-(?:0[1-9]|1[012])-(?:[012][0-9]|3[01])T[0-9]{2}:[0-9]{2}:[0-9]{2}$},
+        qr{^20[0-9]{2}-(?:0[0-9]|1[12])-(?:[012][0-9]|3[01])T[0-9]{2}:[0-9]{2}:[0-9]{2}$},
     );
 };
 
@@ -169,17 +164,6 @@ subtest 'extensions' => sub {
             }
             @expected;
         },
-    );
-};
-
-subtest 'error' => sub {
-    doit(
-        sub {
-            my $server = shift;
-            system("curl --silent http://127.0.0.1:$server->{port}/fastcgi > /dev/null");
-        },
-        '%{error}x',
-        qr{^\[lib/handler/fastcgi\.c\] connection failed:}s,
     );
 };
 

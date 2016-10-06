@@ -23,7 +23,13 @@
 #define h2o__time_h
 
 #include <stdint.h>
+
+#ifndef _MSC_VER
 #include <sys/time.h>
+#else
+#include<winsock2.h> //Creates multiple includes (redifination problems)
+#endif
+
 #include <time.h>
 
 #ifdef __cplusplus

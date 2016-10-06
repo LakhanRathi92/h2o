@@ -122,7 +122,11 @@ static int on_config_header_unset(h2o_configurator_command_t *cmd, h2o_configura
         h2o_configurator_errprintf(cmd, node, "invalid header name");
         return -1;
     }
+#ifndef _MSC_VER
     if (add_cmd(cmd, node, H2O_HEADERS_CMD_UNSET, name, (h2o_iovec_t){NULL}) != 0) {
+#else
+	if (add_cmd(cmd, node, H2O_HEADERS_CMD_UNSET, name, (h2o_iovec_t) { 0 }) != 0) {
+#endif
         if (!h2o_iovec_is_token(name))
             free(name->base);
         return -1;

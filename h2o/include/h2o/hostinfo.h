@@ -22,13 +22,19 @@
 #ifndef h2o__hostinfo_h
 #define h2o__hostinfo_h
 
+#include <stdlib.h>
+#include <string.h>
+#ifndef _MSC_VER
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/socket.h>
+#else
+//#include <winsock2.h>
+
+#endif
 #include <sys/types.h>
+
 #include "h2o/multithread.h"
 
 typedef struct st_h2o_hostinfo_getaddr_req_t h2o_hostinfo_getaddr_req_t;

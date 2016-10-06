@@ -25,7 +25,11 @@
 
 static void test_on_alpn_select(void)
 {
+#ifndef _MSC_VER
     static const h2o_iovec_t protocols[] = {{H2O_STRLIT("h2")}, {H2O_STRLIT("h2-16")}, {H2O_STRLIT("h2-14")}, {NULL}};
+#else
+	static const h2o_iovec_t protocols[] = { { H2O_MY_STRLIT("h2") },{ H2O_MY_STRLIT("h2-16") },{ H2O_MY_STRLIT("h2-14") },{ 0 } };
+#endif
     const unsigned char *out;
     unsigned char outlen;
     int ret;

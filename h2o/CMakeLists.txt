@@ -19,8 +19,10 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
+#current h2o.
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.11)
 CMAKE_POLICY(SET CMP0003 NEW)
+
 
 PROJECT(h2o)
 
@@ -40,8 +42,10 @@ CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/libh2o-evloop.pc.in ${CMAKE_CURRENT_B
 
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
+
 FIND_PACKAGE(PkgConfig)
 FIND_PACKAGE(Threads REQUIRED)
+
 
 FIND_PACKAGE(OpenSSL)
 FIND_PACKAGE(ZLIB REQUIRED)
@@ -60,8 +64,15 @@ OPTION(WITH_BUNDLED_SSL "whether or not to use the bundled libressl" ${WITH_BUND
 OPTION(WITHOUT_LIBS "skip building libs even when possible" OFF)
 OPTION(BUILD_SHARED_LIBS "whether to build a shared library" OFF)
 
-FIND_PROGRAM(RUBY ruby)
-FIND_PROGRAM(BISON bison)
+IF (WIN32)
+    ADD_DEFINITIONS(-DNOMINMAX -DWIN32_LEAN_AND_MEAN)
+	SET(EXTRA_LIBRARIES ${EXTRA_LIBRARIES} ws2_32)
+ENDIF()
+
+# : commented below two deps.
+#FIND_PROGRAM(RUBY ruby)
+#FIND_PROGRAM(BISON bison)
+
 SET(MKMF_FOUND "NO")
 IF (RUBY)
     EXECUTE_PROCESS(COMMAND ruby -e "require 'mkmf'" RESULT_VARIABLE REQUIRE_MKMF_RESULT ERROR_QUIET)
@@ -96,10 +107,10 @@ ENDIF (WITH_BUNDLED_SSL)
 INCLUDE_DIRECTORIES(
     include
     deps/cloexec
-    deps/brotli/enc
+#    deps/brotli/enc
     deps/golombset
     deps/libgkc
-    deps/libyrmcds
+#    deps/libyrmcds
     deps/klib
     deps/neverbleed
     deps/picohttpparser
@@ -116,9 +127,11 @@ IF (PKG_CONFIG_FOUND)
 ENDIF (PKG_CONFIG_FOUND)
 IF (NOT LIBUV_FOUND)
     FIND_PACKAGE(LibUV)
-    IF (LIBUV_FOUND AND LIBUV_VERSION VERSION_LESS "1.0.0")
-        MESSAGE(STATUS "libuv found but ignored; is too old")
-        UNSET(LIBUV_FOUND)
+    IF (LIBUV_FOUND) #AND LIBUV_VERSION VERSION_LESS "1.0.0")
+        #MESSAGE(STATUS "libuv found but ignored; is too old")
+		INCLUDE_DIRECTORIES(${LIBUV_INCLUDE_DIRS}) #ext
+		LINK_DIRECTORIES({LIBUV_LIBRARY_DIRS}}) #ext
+        #UNSET(LIBUV_FOUND) 
     ENDIF ()
     IF (LIBUV_FOUND)
         INCLUDE_DIRECTORIES(${LIBUV_INCLUDE_DIR})
@@ -154,17 +167,23 @@ IF (ZLIB_FOUND)
     LINK_DIRECTORIES(${ZLIB_LIBRARY_DIRS})
 ENDIF (ZLIB_FOUND)
 
+#if not MSVC : lak
+IF (NOT MSVC)
 SET(CC_WARNING_FLAGS "-Wall -Wno-unused-value -Wno-unused-function")
-IF ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
-    IF (NOT ("${CMAKE_C_COMPILER_VERSION}" VERSION_LESS "4.6"))
-        SET(CC_WARNING_FLAGS "${CC_WARNING_FLAGS} -Wno-unused-but-set-variable")
-    ENDIF ()
-    IF (NOT ("${CMAKE_C_COMPILER_VERSION}" VERSION_LESS "4.5"))
-        SET(CC_WARNING_FLAGS "${CC_WARNING_FLAGS} -Wno-unused-result")
-    ENDIF ()
+	IF ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+		IF (NOT ("${CMAKE_C_COMPILER_VERSION}" VERSION_LESS "4.6"))
+			SET(CC_WARNING_FLAGS "${CC_WARNING_FLAGS} -Wno-unused-but-set-variable")
+		ENDIF ()
+		IF (NOT ("${CMAKE_C_COMPILER_VERSION}" VERSION_LESS "4.5"))
+			SET(CC_WARNING_FLAGS "${CC_WARNING_FLAGS} -Wno-unused-result")
+		ENDIF ()
+	ENDIF ()
+SET(CMAKE_C_FLAGS "-O2 -g ${CC_WARNING_FLAGS} ${CMAKE_C_FLAGS} -DH2O_ROOT=\"${CMAKE_INSTALL_PREFIX}\" -DH2O_CONFIG_PATH=\"${CMAKE_INSTALL_SYSCONFDIR}/h2o.conf\"")
 ENDIF ()
 
-SET(CMAKE_C_FLAGS "-O2 -g -pthread ${CC_WARNING_FLAGS} ${CMAKE_C_FLAGS} -DH2O_ROOT=\"${CMAKE_INSTALL_PREFIX}\" -DH2O_CONFIG_PATH=\"${CMAKE_INSTALL_SYSCONFDIR}/h2o.conf\"")
+# -g 
+SET(CMAKE_C_FLAGS "-O2 -DH2O_ROOT=\"${CMAKE_INSTALL_PREFIX}\" -DH2O_CONFIG_PATH=\"${CMAKE_INSTALL_SYSCONFDIR}/h2o.conf\"")
+
 SET(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}")
 
 SET(LIBYAML_SOURCE_FILES
@@ -177,42 +196,42 @@ SET(LIBYAML_SOURCE_FILES
     deps/yaml/src/scanner.c
     deps/yaml/src/writer.c)
 
-SET(BROTLI_SOURCE_FILES
-    deps/brotli/enc/backward_references.cc
-    deps/brotli/enc/block_splitter.cc
-    deps/brotli/enc/brotli_bit_stream.cc
-    deps/brotli/enc/compress_fragment.cc
-    deps/brotli/enc/compress_fragment_two_pass.cc
-    deps/brotli/enc/dictionary.cc
-    deps/brotli/enc/encode.cc
-    deps/brotli/enc/entropy_encode.cc
-    deps/brotli/enc/histogram.cc
-    deps/brotli/enc/literal_cost.cc
-    deps/brotli/enc/metablock.cc
-    deps/brotli/enc/static_dict.cc
-    deps/brotli/enc/streams.cc
-    deps/brotli/enc/utf8_util.cc
-    lib/handler/compress/brotli.cc)
+#SET(BROTLI_SOURCE_FILES
+ #   deps/brotli/enc/backward_references.cc
+  #  deps/brotli/enc/block_splitter.cc
+   # deps/brotli/enc/brotli_bit_stream.cc
+   # deps/brotli/enc/compress_fragment.cc
+   # deps/brotli/enc/compress_fragment_two_pass.cc
+   # deps/brotli/enc/dictionary.cc
+   # deps/brotli/enc/encode.cc
+   # deps/brotli/enc/entropy_encode.cc
+   # deps/brotli/enc/histogram.cc
+   # deps/brotli/enc/literal_cost.cc
+   # deps/brotli/enc/metablock.cc
+   # deps/brotli/enc/static_dict.cc
+   # deps/brotli/enc/streams.cc
+   # deps/brotli/enc/utf8_util.cc
+   # lib/handler/compress/brotli.cc)
 
 SET(LIB_SOURCE_FILES
     deps/cloexec/cloexec.c
     deps/libgkc/gkc.c
-    deps/libyrmcds/close.c
-    deps/libyrmcds/connect.c
-    deps/libyrmcds/recv.c
-    deps/libyrmcds/send.c
-    deps/libyrmcds/send_text.c
-    deps/libyrmcds/socket.c
-    deps/libyrmcds/strerror.c
-    deps/libyrmcds/text_mode.c
+   # deps/libyrmcds/close.c
+   # deps/libyrmcds/connect.c
+   # deps/libyrmcds/recv.c
+   # deps/libyrmcds/send.c
+   # deps/libyrmcds/send_text.c
+   # deps/libyrmcds/socket.c
+   # deps/libyrmcds/strerror.c
+   # deps/libyrmcds/text_mode.c
     deps/picohttpparser/picohttpparser.c
 
-    lib/common/cache.c
+    lib/common/cache.c #not in older version
     lib/common/file.c
     lib/common/filecache.c
     lib/common/hostinfo.c
     lib/common/http1client.c
-    lib/common/memcached.c
+   # lib/common/memcached.c
     lib/common/memory.c
     lib/common/multithread.c
     lib/common/serverutil.c
@@ -271,8 +290,8 @@ SET(LIB_SOURCE_FILES
 
     lib/tunnel.c
 
-    lib/http2/cache_digests.c
-    lib/http2/casper.c
+    lib/http2/cache_digests.c 
+    lib/http2/casper.c 
     lib/http2/connection.c
     lib/http2/frame.c
     lib/http2/hpack.c
@@ -308,8 +327,7 @@ SET(UNIT_TEST_SOURCE_FILES
     t/00unit/lib/http2/hpack.c
     t/00unit/lib/http2/scheduler.c
     t/00unit/src/ssl.c
-    t/00unit/issues/293.c
-    t/00unit/issues/percent-encode-zero-byte.c)
+    t/00unit/issues/293.c)
 LIST(REMOVE_ITEM UNIT_TEST_SOURCE_FILES
     lib/common/cache.c
     lib/common/hostinfo.c
@@ -355,7 +373,7 @@ SET_TARGET_PROPERTIES(libh2o PROPERTIES
 TARGET_LINK_LIBRARIES(libh2o ${LIBUV_LIBRARIES} ${EXTRA_LIBS})
 SET_TARGET_PROPERTIES(libh2o-evloop PROPERTIES
     OUTPUT_NAME h2o-evloop
-    COMPILE_FLAGS "-DH2O_USE_LIBUV=0"
+    COMPILE_FLAGS "-DH2O_USE_LIBUV=0" 
     VERSION ${LIBRARY_VERSION}
     SOVERSION ${LIBRARY_SOVERSION})
 TARGET_LINK_LIBRARIES(libh2o-evloop ${EXTRA_LIBS})
@@ -385,6 +403,7 @@ IF (WSLAY_FOUND)
     ADD_DEPENDENCIES(lib-examples examples-websocket)
 ENDIF (WSLAY_FOUND)
 
+
 ADD_EXECUTABLE(examples-http1client examples/libh2o/http1client.c)
 SET_TARGET_PROPERTIES(examples-http1client PROPERTIES
     EXCLUDE_FROM_ALL 1)
@@ -407,7 +426,7 @@ TARGET_LINK_LIBRARIES(examples-websocket libh2o ${LIBUV_LIBRARIES} ${WSLAY_LIBRA
 
 ADD_EXECUTABLE(examples-latency-optimization examples/libh2o/latency-optimization.c)
 SET_TARGET_PROPERTIES(examples-latency-optimization PROPERTIES
-    COMPILE_FLAGS "-DH2O_USE_LIBUV=0"
+    COMPILE_FLAGS "-DH2O_USE_LIBUV=1"
     EXCLUDE_FROM_ALL 1)
 TARGET_LINK_LIBRARIES(examples-latency-optimization libh2o-evloop ${EXTRA_LIBS})
 
@@ -419,7 +438,8 @@ SET(STANDALONE_SOURCE_FILES
     deps/neverbleed/neverbleed.c
     src/main.c
     src/ssl.c)
-SET(STANDALONE_COMPILE_FLAGS "-DH2O_USE_LIBUV=0 -DH2O_USE_BROTLI=1")
+	#again forcing
+SET(STANDALONE_COMPILE_FLAGS "-DH2O_USE_LIBUV=1 -DH2O_USE_BROTLI=1")
 IF (WITH_MRUBY)
     IF (${CMAKE_C_COMPILER_ID} STREQUAL "Clang")
         SET(MRUBY_TOOLCHAIN "clang")
@@ -435,7 +455,7 @@ IF (WITH_MRUBY)
         lib/handler/configurator/mruby.c)
     SET(STANDALONE_COMPILE_FLAGS "${STANDALONE_COMPILE_FLAGS} -DH2O_USE_MRUBY=1")
 ENDIF (WITH_MRUBY)
-ADD_EXECUTABLE(h2o ${STANDALONE_SOURCE_FILES})
+ADD_EXECUTABLE(h2o ${STANDALONE_SOURCE_FILES}) 
 SET_TARGET_PROPERTIES(h2o PROPERTIES COMPILE_FLAGS ${STANDALONE_COMPILE_FLAGS})
 IF (WITH_BUNDLED_SSL)
     TARGET_INCLUDE_DIRECTORIES(h2o BEFORE PUBLIC ${BUNDLED_SSL_INCLUDE_DIR})
@@ -482,7 +502,7 @@ ENDIF (WITH_MRUBY)
 # tests
 ADD_EXECUTABLE(t-00unit-evloop.t ${UNIT_TEST_SOURCE_FILES})
 SET_TARGET_PROPERTIES(t-00unit-evloop.t PROPERTIES
-    COMPILE_FLAGS "-DH2O_USE_LIBUV=0 -DH2O_USE_BROTLI=1 -DH2O_UNITTEST=1"
+    COMPILE_FLAGS "-DH2O_USE_LIBUV=1 -DH2O_USE_BROTLI=1 -DH2O_UNITTEST=1"
     EXCLUDE_FROM_ALL 1)
 TARGET_LINK_LIBRARIES(t-00unit-evloop.t ${EXTRA_LIBS})
 

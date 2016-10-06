@@ -22,7 +22,12 @@
 #ifndef h2o__multithread_h
 #define h2o__multithread_h
 
+#ifndef _MSC_VER
 #include <pthread.h>
+#else
+#include "uv.h"
+#endif
+
 #include "h2o/linklist.h"
 #include "h2o/socket.h"
 
@@ -51,8 +56,13 @@ struct st_h2o_multithread_request_t {
 };
 
 typedef struct st_h2o_sem_t {
-    pthread_mutex_t _mutex;
+#ifndef _MSC_VER
+	pthread_mutex_t _mutex;
     pthread_cond_t _cond;
+#else
+	uv_mutex_t _mutex;
+	uv_cond_t _cond;
+#endif
     ssize_t _cur;
     ssize_t _capacity;
 } h2o_sem_t;
@@ -85,7 +95,12 @@ void h2o_multithread_send_request(h2o_multithread_receiver_t *receiver, h2o_mult
 /**
  * create a thread
  */
+
+#ifndef _MSC_VER
 void h2o_multithread_create_thread(pthread_t *tid, const pthread_attr_t *attr, void *(*func)(void *), void *arg);
+#else
+void h2o_multithread_create_thread(uv_thread_t *tid, void *(*func)(void *), void *arg);
+#endif
 
 void h2o_sem_init(h2o_sem_t *sem, ssize_t capacity);
 void h2o_sem_destroy(h2o_sem_t *sem);

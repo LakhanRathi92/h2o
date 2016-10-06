@@ -5,5 +5,5 @@ The tests are numbered using the following rule.
 - (library level tests may go in here)
 - 40 - protocol tests
 - 50 - end-to-end tests
-- 80 - issue tests
+- (issue tests may go in here)
 - 90 - author tests?

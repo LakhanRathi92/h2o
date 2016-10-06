@@ -27,6 +27,17 @@
 #include "h2o/url.h"
 #include "h2o/http1client.h"
 
+ // Linker issues for LibUV
+#ifdef _WIN32
+ //#pragma comment(lib, "Ws2_32.lib")
+#pragma comment(lib, "IPHLPAPI.lib") 
+#pragma comment(lib, "Psapi.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "Userenv.lib")
+#endif
+
+
 static h2o_socketpool_t *sockpool;
 static h2o_mem_pool_t pool;
 static const char *url;
@@ -138,6 +149,12 @@ h2o_http1client_head_cb on_connect(h2o_http1client_t *client, const char *errstr
 
 int main(int argc, char **argv)
 {
+
+#ifdef _WIN32
+	WSADATA wsaData;
+	WSAStartup(MAKEWORD(2, 0), &wsaData);
+#endif
+
     h2o_multithread_queue_t *queue;
     h2o_multithread_receiver_t getaddr_receiver;
     h2o_timeout_t io_timeout;
@@ -166,7 +183,7 @@ int main(int argc, char **argv)
 #endif
     queue = h2o_multithread_create_queue(ctx.loop);
     h2o_multithread_register_receiver(queue, ctx.getaddr_receiver, h2o_hostinfo_getaddr_receiver);
-    h2o_timeout_init(ctx.loop, &io_timeout, 5000); /* 5 seconds */
+    h2o_timeout_init(ctx.loop, &io_timeout, 50000); /* 5 seconds */
 
     /* setup the first request */
     start_request(&ctx);

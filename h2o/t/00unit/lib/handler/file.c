@@ -323,8 +323,11 @@ static void test_if_modified_since(void)
 
 static void test_if_match(void)
 {
+#ifndef _MSC_VER
     h2o_iovec_t etag = {NULL};
-
+#else
+	h2o_iovec_t etag = { 0 };
+#endif
     { /* obtain etag */
         h2o_loopback_conn_t *conn = h2o_loopback_create(&ctx, ctx.globalconf->hosts);
         ssize_t etag_index;
@@ -532,7 +535,11 @@ static void test_range_req(void)
     { /* multiple ranges */
         h2o_loopback_conn_t *conn = h2o_loopback_create(&ctx, ctx.globalconf->hosts);
         ssize_t content_type_index;
+#ifndef _MSC_VER
         h2o_iovec_t content_type, expected[2] = {{NULL}};
+#else
+		h2o_iovec_t content_type, expected[2] = { { 0 } };
+#endif
         char boundary[BOUNDARY_SIZE + 1];
         size_t mimebaselen = strlen("multipart/byteranges; boundary=");
         conn->req.input.method = h2o_iovec_init(H2O_STRLIT("GET"));
@@ -562,7 +569,11 @@ static void test_range_req(void)
     { /* multiple ranges with plenty of WS and COMMA */
         h2o_loopback_conn_t *conn = h2o_loopback_create(&ctx, ctx.globalconf->hosts);
         ssize_t content_type_index;
+#ifndef _MSC_VER
         h2o_iovec_t content_type, expected[2] = {{NULL}};
+#else
+		h2o_iovec_t content_type, expected[2] = { { 0 } };
+#endif
         char boundary[BOUNDARY_SIZE + 1];
         size_t mimebaselen = strlen("multipart/byteranges; boundary=");
         conn->req.input.method = h2o_iovec_init(H2O_STRLIT("GET"));
@@ -687,6 +698,7 @@ void test_lib__handler__file_c()
         h2o_loopback_destroy(conn);
     }
     {
+		//here
         h2o_loopback_conn_t *conn = h2o_loopback_create(&ctx, ctx.globalconf->hosts);
         conn->req.input.method = h2o_iovec_init(H2O_STRLIT("HEAD"));
         conn->req.input.path = h2o_iovec_init(H2O_STRLIT("/index_txt/"));
@@ -706,6 +718,7 @@ void test_lib__handler__file_c()
         ok(h2o_memis(conn->body->bytes, conn->body->size, H2O_STRLIT("hello text\n")));
         h2o_loopback_destroy(conn);
     }
+	//Lak :  creates problems.
     {
         h2o_loopback_conn_t *conn = h2o_loopback_create(&ctx, ctx.globalconf->hosts);
         conn->req.input.method = h2o_iovec_init(H2O_STRLIT("HEAD"));

@@ -21,7 +21,7 @@
  */
 #include <assert.h>
 #include <stdlib.h>
-#include <zlib.h>
+#include "zlib.h"
 #include "h2o.h"
 
 #define WINDOW_BITS 31

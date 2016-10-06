@@ -67,8 +67,13 @@ static void collect_reqs_of_context(struct st_h2o_status_collector_t *collector,
         if (sc->active && sh->per_thread != NULL)
             sh->per_thread(sc->ctx, ctx);
     }
-
-    if (__sync_sub_and_fetch(&collector->num_remaining_threads_atomic, 1) == 0) {
+#ifndef _MSC_VER
+    if (__sync_sub_and_fetch(&collector->num_remaining_threads_atomic, 1) == 0) { //returns the previous value of 1st arg
+#else
+	size_t previousVal = collector->num_remaining_threads_atomic;
+	int xTmp = InterlockedDecrement(&collector->num_remaining_threads_atomic);  //returns the subtracted result
+	if ( xTmp == 0) {
+#endif
         struct st_h2o_status_message_t *message = h2o_mem_alloc(sizeof(*message));
         message->super = (h2o_multithread_message_t){{NULL}};
         message->collector = collector;
@@ -89,14 +94,22 @@ static void send_response(struct st_h2o_status_collector_t *collector)
         h2o_mem_release_shared(collector);
         return;
     }
-
     nr_statuses = req->conn->ctx->globalconf->statuses.size;
-    size_t nr_resp = nr_statuses + 2; // 2 for the footer and header
-    h2o_iovec_t resp[nr_resp];
+     // 2 for the footer and header
+	size_t nr_resp = nr_statuses + 2;
+#ifndef _MSC_VER
+	h2o_iovec_t resp[nr_resp]; //C2057 and C2466
+#else
+	h2o_iovec_t *resp = { 0 };
+#endif
 
     memset(resp, 0, sizeof(resp[0]) * nr_resp);
-    resp[cur_resp++] = (h2o_iovec_t){H2O_STRLIT("{\n")};
 
+#ifndef _MSC_VER
+    resp[cur_resp++] = (h2o_iovec_t){H2O_STRLIT("{\n")};
+#else
+	resp[cur_resp++] = (h2o_iovec_t) { H2O_MY_STRLIT("{\n") };
+#endif
     int coma_removed = 0;
     for (i = 0; i < req->conn->ctx->globalconf->statuses.size; i++) {
         h2o_status_handler_t *sh = &req->conn->ctx->globalconf->statuses.entries[i];
@@ -110,8 +123,11 @@ static void send_response(struct st_h2o_status_collector_t *collector)
             coma_removed = 1;
         }
     }
+#ifndef _MSC_VER
     resp[cur_resp++] = (h2o_iovec_t){H2O_STRLIT("\n}\n")};
-
+#else
+	resp[cur_resp++] = (h2o_iovec_t) { H2O_MY_STRLIT("\n}\n") };
+#endif
     req->res.status = 200;
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("text/plain; charset=utf-8"));
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CACHE_CONTROL, H2O_STRLIT("no-cache, no-store"));
@@ -130,8 +146,11 @@ static void on_collect_notify(h2o_multithread_receiver_t *receiver, h2o_linklist
         struct st_h2o_status_collector_t *collector = message->collector;
         h2o_linklist_unlink(&message->super.link);
         free(message);
-
-        if (__sync_add_and_fetch(&collector->num_remaining_threads_atomic, 0) != 0) {
+#ifndef _MSC_VER
+        if (__sync_add_and_fetch(&collector->num_remaining_threads_atomic, 0) != 0) { // expected result before adding 0.
+#else
+		if (InterlockedIncrement(&collector->num_remaining_threads_atomic) != 1) { //expected result after adding 1.
+#endif
             collect_reqs_of_context(collector, status_ctx->ctx);
         } else {
             send_response(collector);
@@ -213,7 +232,11 @@ static int on_req(h2o_handler_t *_self, h2o_req_t *req)
     } else if (h2o_memis(local_path.base, local_path.len, H2O_STRLIT("/json"))) {
         int ret;
         /* "/json" maps to the JSON API */
+#ifndef _MSC_VER
         h2o_iovec_t status_list = {NULL, 0}; /* NULL means we'll show all statuses */
+#else
+		h2o_iovec_t status_list = {0, NULL};
+#endif
         if (req->query_at != SIZE_MAX && (req->path.len - req->query_at > 6)) {
             if (h2o_memis(&req->path.base[req->query_at], 6, "?show=", 6)) {
                 status_list = h2o_iovec_init(&req->path.base[req->query_at + 6], req->path.len - req->query_at - 6);

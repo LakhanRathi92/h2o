@@ -21,19 +21,33 @@
  */
 #include <errno.h>
 #include <limits.h>
+#ifndef _MSC_VER
 #include <netinet/in.h>
+#include <sys/socket.h>
+#endif
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include "h2o.h"
 #include "h2o/http1.h"
 #include "h2o/http2.h"
-#include "h2o/memcached.h"
 
-#define USE_HTTPS 0
+//#include "h2o/memcached.h"
+
+#define USE_HTTPS 1
 #define USE_MEMCACHED 0
+
+
+ // Linker issues for LibUV
+#ifdef _WIN32
+ //#pragma comment(lib, "Ws2_32.lib")
+#pragma comment(lib, "IPHLPAPI.lib") 
+#pragma comment(lib, "Psapi.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "Userenv.lib")
+#endif
 
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path, int (*on_req)(h2o_handler_t *, h2o_req_t *))
 {
@@ -179,6 +193,20 @@ static int create_listener(void)
 
 #endif
 
+static void setup_ecc_key(SSL_CTX *ssl_ctx)
+{
+	int nid = NID_X9_62_prime256v1;
+	EC_KEY *key = EC_KEY_new_by_curve_name(nid);
+	if (key == NULL) {
+		fprintf(stderr, "Failed to create curve \"%s\"\n", OBJ_nid2sn(nid));
+		return;
+	}
+
+	SSL_CTX_set_tmp_ecdh(ssl_ctx, key);
+	EC_KEY_free(key);
+}
+
+
 static int setup_ssl(const char *cert_file, const char *key_file)
 {
     SSL_load_error_strings();
@@ -186,13 +214,17 @@ static int setup_ssl(const char *cert_file, const char *key_file)
     OpenSSL_add_all_algorithms();
 
     accept_ctx.ssl_ctx = SSL_CTX_new(SSLv23_server_method());
-    SSL_CTX_set_options(accept_ctx.ssl_ctx, SSL_OP_NO_SSLv2);
 
+	setup_ecc_key(accept_ctx.ssl_ctx);
+
+    SSL_CTX_set_options(accept_ctx.ssl_ctx, SSL_OP_NO_SSLv2);
+/*
     if (USE_MEMCACHED) {
         accept_ctx.libmemcached_receiver = &libmemcached_receiver;
         h2o_accept_setup_async_ssl_resumption(h2o_memcached_create_context("127.0.0.1", 11211, 0, 1, "h2o:ssl-resumption:"), 86400);
         h2o_socket_ssl_async_resumption_setup_ctx(accept_ctx.ssl_ctx);
     }
+	*/
 
     /* load certificate and private key */
     if (SSL_CTX_use_certificate_file(accept_ctx.ssl_ctx, cert_file, SSL_FILETYPE_PEM) != 1) {
@@ -219,8 +251,6 @@ int main(int argc, char **argv)
 {
     h2o_hostconf_t *hostconf;
 
-    signal(SIGPIPE, SIG_IGN);
-
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/post-test", post_test);
@@ -235,10 +265,12 @@ int main(int argc, char **argv)
 #else
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
 #endif
+	/*
     if (USE_MEMCACHED)
         h2o_multithread_register_receiver(ctx.queue, &libmemcached_receiver, h2o_memcached_receiver);
+		*/
 
-    if (USE_HTTPS && setup_ssl("examples/h2o/server.crt", "examples/h2o/server.key") != 0)
+    if (USE_HTTPS && setup_ssl("cert.pem", "key.pem") != 0)
         goto Error;
 
     /* disabled by default: uncomment the line below to enable access logging */

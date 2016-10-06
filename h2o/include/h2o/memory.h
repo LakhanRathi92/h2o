@@ -70,6 +70,10 @@ extern "C" {
 #define H2O_TO__STR(n) #n
 #define H2O_TO_STR(n) H2O_TO__STR(n)
 
+#ifndef __builtin_constant_p
+#define __builtin_constant_p(x) 0 
+#endif
+
 #define H2O_BUILD_ASSERT(condition) ((void)sizeof(char[2 * !!(!__builtin_constant_p(condition) || (condition)) - 1]))
 
 typedef struct st_h2o_buffer_prototype_t h2o_buffer_prototype_t;
@@ -77,10 +81,18 @@ typedef struct st_h2o_buffer_prototype_t h2o_buffer_prototype_t;
 /**
  * buffer structure compatible with iovec
  */
+
+#ifndef _MSC_VER
 typedef struct st_h2o_iovec_t {
     char *base;
     size_t len;
 } h2o_iovec_t;
+#else
+typedef struct st_h2o_iovec_t {
+	size_t len;
+	char *base;
+} h2o_iovec_t;
+#endif
 
 typedef struct st_h2o_mem_recycle_t {
     size_t max;

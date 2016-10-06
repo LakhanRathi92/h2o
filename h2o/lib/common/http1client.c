@@ -19,12 +19,16 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#ifndef _MSC_VER
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#else
+# include <ws2tcpip.h>
+#endif
 #include "picohttpparser.h"
 #include "h2o/string_.h"
 #include "h2o/hostinfo.h"
@@ -388,8 +392,7 @@ static void on_handshake_complete(h2o_socket_t *sock, const char *err)
 
     if (err == NULL) {
         /* success */
-    } else if (err == h2o_socket_error_ssl_cert_name_mismatch &&
-               (SSL_CTX_get_verify_mode(client->super.ctx->ssl_ctx) & SSL_VERIFY_PEER) == 0) {
+    } else if (err == h2o_socket_error_ssl_cert_name_mismatch && (client->super.ctx->ssl_ctx->verify_mode & SSL_VERIFY_PEER) == 0) {
         /* peer verification skipped */
     } else {
         on_connect_error(client, err);
@@ -509,7 +512,11 @@ void h2o_http1client_connect(h2o_http1client_t **_client, void *data, h2o_http1c
         }
     }
     { /* directly call connect(2) if `host` refers to an UNIX-domain socket */
+#ifndef _MSC_VER
         struct sockaddr_un sa;
+#else
+		struct sockaddr sa;
+#endif
         const char *to_sa_err;
         if ((to_sa_err = h2o_url_host_to_sun(host, &sa)) != h2o_url_host_to_sun_err_is_not_unix_socket) {
             if (to_sa_err != NULL) {

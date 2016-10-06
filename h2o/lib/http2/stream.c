@@ -126,7 +126,11 @@ static void commit_data_header(h2o_http2_conn_t *conn, h2o_http2_stream_t *strea
     }
     /* send a RST_STREAM if there's an error */
     if (send_state == H2O_SEND_STATE_ERROR) {
+#ifndef _MSC_VER
         h2o_http2_encode_rst_stream_frame(outbuf, stream->stream_id, -H2O_HTTP2_ERROR_PROTOCOL);
+#else
+		h2o_http2_encode_rst_stream_frame(outbuf, stream->stream_id, H2O_HTTP2_ERROR_PROTOCOL);
+#endif
     }
 }
 
@@ -298,7 +302,11 @@ CancelPush:
     h2o_http2_stream_set_state(conn, stream, H2O_HTTP2_STREAM_STATE_END_STREAM);
     h2o_linklist_insert(&conn->_write.streams_to_proceed, &stream->_refs.link);
     if (stream->push.promise_sent) {
+#ifndef _MSC_VER
         h2o_http2_encode_rst_stream_frame(&conn->_write.buf, stream->stream_id, -H2O_HTTP2_ERROR_INTERNAL);
+#else
+		h2o_http2_encode_rst_stream_frame(&conn->_write.buf, stream->stream_id, H2O_HTTP2_ERROR_INTERNAL);
+#endif
         h2o_http2_conn_request_write(conn);
     }
     return -1;

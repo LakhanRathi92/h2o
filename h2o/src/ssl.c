@@ -21,7 +21,15 @@
  */
 #include <assert.h>
 #include <inttypes.h>
+
+#ifndef _MSC_VER
 #include <pthread.h>
+#else
+#define MY_RWLOCK_INITIALIZER {NULL}
+#define strerror_r(errno,buf,len) strerror_s(buf,len,errno)
+
+#endif
+
 #include <sys/stat.h>
 #include <openssl/crypto.h>
 #include <openssl/err.h>
@@ -29,7 +37,7 @@
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include "yoml-parser.h"
-#include "yrmcds.h"
+//#include "yrmcds.h"
 #include "h2o/file.h"
 #include "h2o.h"
 #include "h2o/configurator.h"
@@ -81,7 +89,12 @@ H2O_NORETURN static void *cache_cleanup_thread(void *_contexts)
         size_t i;
         for (i = 0; contexts[i] != NULL; ++i)
             SSL_CTX_flush_sessions(contexts[i], time(NULL));
-        sleep(conf.lifetime / 4);
+#ifndef _MSC_VER
+        sleep(conf.lifetime / 4); //unsigned int sleep(unsigned int seconds);
+#else
+	//	Sleep(1000*(conf.lifetime / 4)); // millisecond to seconds
+		_sleep(conf.lifetime / 4); 
+#endif
     }
 }
 
@@ -93,11 +106,16 @@ static void spawn_cache_cleanup_thread(SSL_CTX **_contexts, size_t num_contexts)
     contexts[num_contexts] = NULL;
 
     /* launch the thread */
+#ifndef _MSC_VER
     pthread_t tid;
     pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, 1);
-    h2o_multithread_create_thread(&tid, &attr, cache_cleanup_thread, contexts);
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, 1);
+	h2o_multithread_create_thread(&tid, &attr, cache_cleanup_thread, contexts);
+#else
+	uv_thread_t tid;
+	h2o_multithread_create_thread(&tid, cache_cleanup_thread, contexts);
+#endif
 }
 
 static void setup_cache_disable(SSL_CTX **contexts, size_t num_contexts)
@@ -117,6 +135,7 @@ static void setup_cache_internal(SSL_CTX **contexts, size_t num_contexts)
     spawn_cache_cleanup_thread(contexts, num_contexts);
 }
 
+#ifndef _MSC_VER
 static void setup_cache_memcached(SSL_CTX **contexts, size_t num_contexts)
 {
     h2o_memcached_context_t *memc_ctx =
@@ -131,6 +150,7 @@ static void setup_cache_memcached(SSL_CTX **contexts, size_t num_contexts)
     }
     spawn_cache_cleanup_thread(contexts, num_contexts);
 }
+#endif
 
 static void cache_init_defaults(void)
 {
@@ -156,35 +176,45 @@ struct st_session_ticket_t {
 typedef H2O_VECTOR(struct st_session_ticket_t *) session_ticket_vector_t;
 
 static struct {
+#ifndef _MSC_VER
     pthread_rwlock_t rwlock;
+#else
+	bool flagInit;
+	uv_rwlock_t rwlock;
+#endif
     session_ticket_vector_t tickets; /* sorted from newer to older */
 } session_tickets = {
 /* we need writer-preferred lock, but on linux PTHREAD_RWLOCK_INITIALIZER is reader-preferred */
+#ifndef _MSC_VER
 #ifdef PTHREAD_RWLOCK_WRITER_NONRECURSIVE_INITIALIZER_NP
     PTHREAD_RWLOCK_WRITER_NONRECURSIVE_INITIALIZER_NP
 #else
     PTHREAD_RWLOCK_INITIALIZER
 #endif
-    ,
-    {NULL} /* tickets */
+#else
+	false,
+	MY_RWLOCK_INITIALIZER
+#endif
+	,
+	{ NULL } /* tickets */
+
 };
 
 static struct st_session_ticket_t *new_ticket(const EVP_CIPHER *cipher, const EVP_MD *md, uint64_t not_before, uint64_t not_after,
                                               int fill_in)
 {
-    int key_len = EVP_CIPHER_key_length(cipher), block_size = EVP_MD_block_size(md);
-    struct st_session_ticket_t *ticket = h2o_mem_alloc(sizeof(*ticket) + key_len + block_size);
+    struct st_session_ticket_t *ticket = h2o_mem_alloc(sizeof(*ticket) + cipher->key_len + md->block_size);
 
     ticket->cipher.cipher = cipher;
     ticket->cipher.key = (unsigned char *)ticket + sizeof(*ticket);
     ticket->hmac.md = md;
-    ticket->hmac.key = ticket->cipher.key + key_len;
+    ticket->hmac.key = ticket->cipher.key + cipher->key_len;
     ticket->not_before = not_before;
     ticket->not_after = not_after;
     if (fill_in) {
         RAND_bytes(ticket->name, sizeof(ticket->name));
-        RAND_bytes(ticket->cipher.key, key_len);
-        RAND_bytes(ticket->hmac.key, block_size);
+        RAND_bytes(ticket->cipher.key, ticket->cipher.cipher->key_len);
+        RAND_bytes(ticket->hmac.key, ticket->hmac.md->block_size);
     }
 
     return ticket;
@@ -192,8 +222,7 @@ static struct st_session_ticket_t *new_ticket(const EVP_CIPHER *cipher, const EV
 
 static void free_ticket(struct st_session_ticket_t *ticket)
 {
-    int key_len = EVP_CIPHER_key_length(ticket->cipher.cipher), block_size = EVP_MD_block_size(ticket->hmac.md);
-    h2o_mem_set_secure(ticket, 0, sizeof(*ticket) + key_len + block_size);
+    h2o_mem_set_secure(ticket, 0, sizeof(*ticket) + ticket->cipher.cipher->key_len + ticket->hmac.md->block_size);
     free(ticket);
 }
 
@@ -235,8 +264,11 @@ static struct st_session_ticket_t *find_ticket_for_encryption(session_ticket_vec
 static int ticket_key_callback(SSL *ssl, unsigned char *key_name, unsigned char *iv, EVP_CIPHER_CTX *ctx, HMAC_CTX *hctx, int enc)
 {
     int ret;
+#ifndef _MSC_VER
     pthread_rwlock_rdlock(&session_tickets.rwlock);
-
+#else
+	uv_rwlock_rdlock(&session_tickets.rwlock);
+#endif
     if (enc) {
         RAND_bytes(iv, EVP_MAX_IV_LENGTH);
         struct st_session_ticket_t *ticket = find_ticket_for_encryption(&session_tickets.tickets, time(NULL)), *temp_ticket = NULL;
@@ -248,7 +280,7 @@ static int ticket_key_callback(SSL *ssl, unsigned char *key_name, unsigned char 
         }
         memcpy(key_name, ticket->name, sizeof(ticket->name));
         EVP_EncryptInit_ex(ctx, ticket->cipher.cipher, NULL, ticket->cipher.key, iv);
-        HMAC_Init_ex(hctx, ticket->hmac.key, EVP_MD_block_size(ticket->hmac.md), ticket->hmac.md, NULL);
+        HMAC_Init_ex(hctx, ticket->hmac.key, ticket->hmac.md->block_size, ticket->hmac.md, NULL);
         if (temp_ticket != NULL)
             free_ticket(ticket);
         ret = 1;
@@ -265,12 +297,17 @@ static int ticket_key_callback(SSL *ssl, unsigned char *key_name, unsigned char 
         goto Exit;
     Found:
         EVP_DecryptInit_ex(ctx, ticket->cipher.cipher, NULL, ticket->cipher.key, iv);
-        HMAC_Init_ex(hctx, ticket->hmac.key, EVP_MD_block_size(ticket->hmac.md), ticket->hmac.md, NULL);
+        HMAC_Init_ex(hctx, ticket->hmac.key, ticket->hmac.md->block_size, ticket->hmac.md, NULL);
         ret = i == 0 ? 1 : 2; /* request renew if the key is not the newest one */
     }
 
 Exit:
+#ifndef _MSC_VER
     pthread_rwlock_unlock(&session_tickets.rwlock);
+#else
+//	uv_rwlock_unlock(&session_tickets.rwlock);
+	uv_rwlock_wrunlock(&session_tickets.rwlock);
+#endif
     return ret;
 }
 
@@ -306,6 +343,7 @@ static int update_tickets(session_ticket_vector_t *tickets, uint64_t now)
 
 H2O_NORETURN static void *ticket_internal_updater(void *unused)
 {
+#ifndef _MSC_VER
     while (1) {
         pthread_rwlock_wrlock(&session_tickets.rwlock);
         update_tickets(&session_tickets.tickets, time(NULL));
@@ -313,16 +351,31 @@ H2O_NORETURN static void *ticket_internal_updater(void *unused)
         /* sleep for certain amount of time */
         sleep(120 - (h2o_rand() >> 16) % 7);
     }
+#else
+	while (1) {
+		uv_rwlock_wrlock(&session_tickets.rwlock);
+		update_tickets(&session_tickets.tickets, time(NULL));
+		//uv_rwlock_unlock(&session_tickets.rwlock);
+		uv_rwlock_wrunlock(&session_tickets.rwlock);
+		/* sleep for certain amount of time */
+		_sleep(120 - (h2o_rand() >> 16) % 7);
+	}
+#endif
 }
 
 static int serialize_ticket_entry(char *buf, size_t bufsz, struct st_session_ticket_t *ticket)
 {
+#ifndef _MSC_VER
     char *name_buf = alloca(sizeof(ticket->name) * 2 + 1);
     h2o_hex_encode(name_buf, ticket->name, sizeof(ticket->name));
-    int key_len = EVP_CIPHER_key_length(ticket->cipher.cipher), block_size = EVP_MD_block_size(ticket->hmac.md);
-    char *key_buf = alloca((key_len + block_size) * 2 + 1);
-    h2o_hex_encode(key_buf, ticket->cipher.key, key_len);
-    h2o_hex_encode(key_buf + key_len * 2, ticket->hmac.key, block_size);
+    char *key_buf = alloca((ticket->cipher.cipher->key_len + ticket->hmac.md->block_size) * 2 + 1);
+#else
+	char *name_buf = _alloca(sizeof(ticket->name) * 2 + 1);
+	h2o_hex_encode(name_buf, ticket->name, sizeof(ticket->name));
+	char *key_buf = _alloca((ticket->cipher.cipher->key_len + ticket->hmac.md->block_size) * 2 + 1);
+#endif
+    h2o_hex_encode(key_buf, ticket->cipher.key, ticket->cipher.cipher->key_len);
+    h2o_hex_encode(key_buf + (ticket->cipher.cipher->key_len) * 2, ticket->hmac.key, ticket->hmac.md->block_size);
 
     return snprintf(buf, bufsz, "- name: %s\n"
                                 "  cipher: %s\n"
@@ -386,13 +439,14 @@ static struct st_session_ticket_t *parse_ticket_entry(yoml_t *element, char *err
         }
     });
     FETCH("key", {
-        size_t keylen = EVP_CIPHER_key_length(cipher) + EVP_MD_block_size(hash);
+        size_t keylen = cipher->key_len + hash->block_size;
         if (strlen(t->data.scalar) != keylen * 2) {
             sprintf(errstr, "length of the `key` attribute is incorrect (is %zu, must be %zu)\n", strlen(t->data.scalar),
                     keylen * 2);
             return NULL;
         }
-        key = alloca(keylen + 1);
+//        key = alloca(keylen + 1);
+		key = _alloca(keylen + 1);
         if (h2o_hex_decode(key, t->data.scalar, keylen * 2) != 0) {
             strcpy(errstr, "failed to decode the hex-encoded key");
             return NULL;
@@ -419,8 +473,8 @@ static struct st_session_ticket_t *parse_ticket_entry(yoml_t *element, char *err
 
     ticket = new_ticket(cipher, hash, not_before, not_after, 0);
     memcpy(ticket->name, name, sizeof(ticket->name));
-    memcpy(ticket->cipher.key, key, EVP_CIPHER_key_length(cipher));
-    memcpy(ticket->hmac.key, key + EVP_CIPHER_key_length(cipher), EVP_MD_block_size(hash));
+    memcpy(ticket->cipher.key, key, cipher->key_len);
+    memcpy(ticket->hmac.key, key + cipher->key_len, hash->block_size);
     return ticket;
 }
 
@@ -467,7 +521,11 @@ Error:
 
 static h2o_iovec_t serialize_tickets(session_ticket_vector_t *tickets)
 {
+#ifndef _MSC_VER
     h2o_iovec_t data = {h2o_mem_alloc(tickets->size * 1024 + 1), 0};
+#else
+	h2o_iovec_t data = {  0 , h2o_mem_alloc(tickets->size * 1024 + 1) };
+#endif
     size_t i;
 
     for (i = 0; i != tickets->size; ++i) {
@@ -483,9 +541,14 @@ static h2o_iovec_t serialize_tickets(session_ticket_vector_t *tickets)
     return data;
 Error:
     free(data.base);
+#ifndef _MSC_VER
     return (h2o_iovec_t){NULL};
+#else
+	return (h2o_iovec_t) { 0 };
+#endif
 }
 
+#ifndef _MSC_VER
 static int ticket_memcached_update_tickets(yrmcds *conn, h2o_iovec_t key, time_t now)
 {
     yrmcds_response resp;
@@ -553,10 +616,15 @@ Exit:
     free(tickets_serialized.base);
     free_tickets(&tickets);
     return retry;
+
 }
+#else
+#endif
+
 
 H2O_NORETURN static void *ticket_memcached_updater(void *unused)
 {
+#ifndef _MSC_VER
     while (1) {
         /* connect */
         yrmcds conn;
@@ -577,13 +645,20 @@ H2O_NORETURN static void *ticket_memcached_updater(void *unused)
         yrmcds_close(&conn);
         sleep(60);
     }
+#else
+
+#endif
 }
 
 static int load_tickets_file(const char *fn)
 {
 #define ERR_PREFIX "failed to load session ticket secrets from file:%s:"
 
+#ifndef _MSC_VER
     h2o_iovec_t data = {NULL};
+#else
+	h2o_iovec_t data = { 0 };
+#endif
     session_ticket_vector_t tickets = {NULL};
     char errbuf[256];
     int ret = -1;
@@ -605,10 +680,21 @@ static int load_tickets_file(const char *fn)
     if (tickets.size > 1)
         qsort(tickets.entries, tickets.size, sizeof(tickets.entries[0]), ticket_sort_compare);
     /* replace the ticket list */
+#ifndef _MSC_VER
     pthread_rwlock_wrlock(&session_tickets.rwlock);
     h2o_mem_swap(&session_tickets.tickets, &tickets, sizeof(tickets));
     pthread_rwlock_unlock(&session_tickets.rwlock);
-
+#else
+	if (! (session_tickets.flagInit) )
+	{
+		uv_rwlock_init(&session_tickets.rwlock);
+		session_tickets.flagInit = true;
+	}
+	uv_rwlock_wrlock(&session_tickets.rwlock);
+	h2o_mem_swap(&session_tickets.tickets, &tickets, sizeof(tickets));
+	//uv_rwlock_unlock(&session_tickets.rwlock);
+	uv_rwlock_wrunlock(&session_tickets.rwlock);
+#endif
     ret = 0;
 Exit:
     free(data.base);
@@ -637,7 +723,11 @@ H2O_NORETURN static void *ticket_file_updater(void *unused)
             if (load_tickets_file(conf.ticket.vars.file.filename) == 0)
                 fprintf(stderr, "session ticket secrets have been (re)loaded\n");
         }
+#ifndef _MSC_VER
         sleep(10);
+#else
+		_sleep(10);
+#endif
     }
 }
 
@@ -692,7 +782,9 @@ int ssl_session_resumption_on_config(h2o_configurator_command_t *cmd, h2o_config
                     /* preserve the default */
                     t = NULL;
                 } else if (strcasecmp(t->data.scalar, "memcached") == 0) {
+#ifndef _MSC_VER
                     conf.cache.setup = setup_cache_memcached;
+#endif
                     t = NULL;
                 }
             }
@@ -701,6 +793,7 @@ int ssl_session_resumption_on_config(h2o_configurator_command_t *cmd, h2o_config
                 return -1;
             }
         }
+#ifndef _MSC_VER
         if (conf.cache.setup == setup_cache_memcached) {
             conf.cache.vars.memcached.num_threads = 1;
             conf.cache.vars.memcached.prefix = "h2o:ssl-session-cache:";
@@ -719,10 +812,11 @@ int ssl_session_resumption_on_config(h2o_configurator_command_t *cmd, h2o_config
                 conf.cache.vars.memcached.prefix = h2o_strdup(NULL, t->data.scalar, SIZE_MAX).base;
             }
         }
-    } else {
+    } else 
+#else{
         conf.cache.setup = setup_cache_disable;
     }
-
+#endif
     if ((modes & MODE_TICKET) != 0) {
 #if H2O_USE_SESSION_TICKETS
         ticket_init_defaults();
@@ -831,7 +925,7 @@ int ssl_session_resumption_on_config(h2o_configurator_command_t *cmd, h2o_config
             return -1;
         }
     }
-
+#ifndef _MSC_VER
     uses_memcached = conf.cache.setup == setup_cache_memcached;
 #if H2O_USE_SESSION_TICKETS
     uses_memcached = (uses_memcached || conf.ticket.update_thread == ticket_memcached_updater);
@@ -840,6 +934,7 @@ int ssl_session_resumption_on_config(h2o_configurator_command_t *cmd, h2o_config
         h2o_configurator_errprintf(cmd, node, "configuration of memcached is missing");
         return -1;
     }
+#endif
 
     if ((t = yoml_get(node, "lifetime")) != NULL) {
         if (!(t->type == YOML_TYPE_SCALAR && sscanf(t->data.scalar, "%u", &conf.lifetime) == 1 && conf.lifetime != 0)) {
@@ -862,11 +957,16 @@ void ssl_setup_session_resumption(SSL_CTX **contexts, size_t num_contexts)
 
     if (conf.ticket.update_thread != NULL) {
         /* start session ticket updater thread */
+#ifndef _MSC_VER
         pthread_t tid;
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_attr_setdetachstate(&attr, 1);
-        h2o_multithread_create_thread(&tid, &attr, conf.ticket.update_thread, NULL);
+		h2o_multithread_create_thread(&tid, &attr, conf.ticket.update_thread, NULL);
+#else
+		uv_thread_t tid;
+		h2o_multithread_create_thread(&tid, conf.ticket.update_thread, NULL);
+#endif
         size_t i;
         for (i = 0; i != num_contexts; ++i)
             SSL_CTX_set_tlsext_ticket_key_cb(contexts[i], ticket_key_callback);
@@ -878,10 +978,15 @@ void ssl_setup_session_resumption(SSL_CTX **contexts, size_t num_contexts)
 #endif
 }
 
+#ifndef _MSC_VER
 static pthread_mutex_t *mutexes;
+#else
+static uv_mutex_t *mutexes;
+#endif
 
 static void lock_callback(int mode, int n, const char *file, int line)
 {
+#ifndef _MSC_VER
     if ((mode & CRYPTO_LOCK) != 0) {
         pthread_mutex_lock(mutexes + n);
     } else if ((mode & CRYPTO_UNLOCK) != 0) {
@@ -889,11 +994,26 @@ static void lock_callback(int mode, int n, const char *file, int line)
     } else {
         assert(!"unexpected mode");
     }
+#else
+	if ((mode & CRYPTO_LOCK) != 0) {
+		uv_mutex_lock(mutexes + n);
+	}
+	else if ((mode & CRYPTO_UNLOCK) != 0) {
+		uv_mutex_unlock(mutexes + n);
+	}
+	else {
+		assert(!"unexpected mode");
+	}
+#endif
 }
 
 static unsigned long thread_id_callback(void)
 {
+#ifndef _MSC_VER
     return (unsigned long)pthread_self();
+#else
+	return (unsigned long)uv_thread_self();
+#endif
 }
 
 static int add_lock_callback(int *num, int amount, int type, const char *file, int line)
@@ -901,8 +1021,16 @@ static int add_lock_callback(int *num, int amount, int type, const char *file, i
     (void)type;
     (void)file;
     (void)line;
-
-    return __sync_add_and_fetch(num, amount);
+#ifndef _MSC_VER
+    return __sync_add_and_fetch(num, amount); // 
+#else
+	int preValue = *num;
+	//won't be atomic then..! look for alternative
+	for (int i = 0; i < amount; i++) {
+		InterlockedIncrement(num);
+	}
+	return preValue;
+#endif
 }
 
 void init_openssl(void)
@@ -910,7 +1038,11 @@ void init_openssl(void)
     int nlocks = CRYPTO_num_locks(), i;
     mutexes = h2o_mem_alloc(sizeof(*mutexes) * nlocks);
     for (i = 0; i != nlocks; ++i)
+#ifndef _MSC_VER
         pthread_mutex_init(mutexes + i, NULL);
+#else
+		uv_mutex_init(mutexes + i);
+#endif
     CRYPTO_set_locking_callback(lock_callback);
     CRYPTO_set_id_callback(thread_id_callback);
     CRYPTO_set_add_lock_callback(add_lock_callback);

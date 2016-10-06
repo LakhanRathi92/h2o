@@ -27,7 +27,11 @@ static h2o_context_t ctx;
 
 static void register_authority(h2o_globalconf_t *globalconf, h2o_iovec_t host, uint16_t port)
 {
+#ifndef _MSC_VER
     static h2o_iovec_t x_authority = {H2O_STRLIT("x-authority")};
+#else
+	static h2o_iovec_t x_authority = { H2O_MY_STRLIT("x-authority") };
+#endif
 
     h2o_hostconf_t *hostconf = h2o_config_register_host(globalconf, host, port);
     h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, "/", 0);
@@ -36,7 +40,11 @@ static void register_authority(h2o_globalconf_t *globalconf, h2o_iovec_t host, u
     char *authority = h2o_mem_alloc(host.len + sizeof(":" H2O_UINT16_LONGEST_STR));
     sprintf(authority, "%.*s:%" PRIu16, (int)host.len, host.base, port);
     h2o_headers_command_t *cmds = h2o_mem_alloc(sizeof(*cmds) * 2);
+#ifndef _MSC_VER
     cmds[0] = (h2o_headers_command_t){H2O_HEADERS_CMD_ADD, &x_authority, {authority, strlen(authority)}};
+#else
+	cmds[0] = (h2o_headers_command_t) { H2O_HEADERS_CMD_ADD, &x_authority, { strlen(authority) , authority} };
+#endif
     cmds[1] = (h2o_headers_command_t){H2O_HEADERS_CMD_NULL};
     h2o_headers_register(pathconf, cmds);
 }

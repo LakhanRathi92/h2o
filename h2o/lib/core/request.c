@@ -19,15 +19,9 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/uio.h>
 #include "h2o.h"
-
-#ifndef IOV_MAX
-#define IOV_MAX UIO_MAXIOV
-#endif
 
 #define INITIAL_INBUFSZ 8192
 
@@ -74,7 +68,11 @@ static h2o_hostconf_t *find_hostconf(h2o_hostconf_t **hostconfs, h2o_iovec_t aut
         port = default_port;
 
     /* convert supplied hostname to lower-case */
+#ifndef _MSC_VER
     hostname_lc = alloca(hostname.len);
+#else
+	hostname_lc = _alloca(hostname.len);
+#endif
     memcpy(hostname_lc, hostname.base, hostname.len);
     h2o_strtolower(hostname_lc, hostname.len);
 
@@ -508,48 +506,30 @@ DECL_SEND_ERROR_DEFERRED(502)
 
 void h2o_req_log_error(h2o_req_t *req, const char *module, const char *fmt, ...)
 {
-#define INITIAL_BUF_SIZE 256
+#define PREFIX "[%s] in request:%.32s:"
+#ifndef _MSC_VER
+    char *fmt_prefixed = alloca(sizeof("[] in request::\n") + 32 + strlen(module) + strlen(fmt)), *p = fmt_prefixed;
+#else
+	char *fmt_prefixed = _alloca(sizeof("[] in request::\n") + 32 + strlen(module) + strlen(fmt)), *p = fmt_prefixed;
+#endif
+    p += sprintf(fmt_prefixed, "[%s] in request:", module);
+    if (req->path.len < 32) {
+        memcpy(p, req->path.base, req->path.len);
+        p += req->path.len;
+    } else {
+        memcpy(p, req->path.base, 29);
+        p += 29;
+        memcpy(p, "...", 3);
+        p += 3;
+    }
+    *p++ = ':';
+    strcpy(p, fmt);
+    strcat(p, "\n");
 
-    char *errbuf = h2o_mem_alloc_pool(&req->pool, INITIAL_BUF_SIZE);
-    int errlen;
     va_list args;
-
     va_start(args, fmt);
-    errlen = vsnprintf(errbuf, INITIAL_BUF_SIZE, fmt, args);
+    vfprintf(stderr, fmt_prefixed, args);
     va_end(args);
-
-    if (errlen >= INITIAL_BUF_SIZE) {
-        errbuf = h2o_mem_alloc_pool(&req->pool, errlen + 1);
-        va_start(args, fmt);
-        errlen = vsnprintf(errbuf, errlen + 1, fmt, args);
-        va_end(args);
-    }
-
-#undef INITIAL_BUF_SIZE
-
-    /* save the log */
-    h2o_vector_reserve(&req->pool, &req->error_logs, req->error_logs.size + 1);
-    req->error_logs.entries[req->error_logs.size++] = (h2o_req_error_log_t){module, h2o_iovec_init(errbuf, errlen)};
-
-    if (req->pathconf->error_log.emit_request_errors) {
-        /* build prefix */
-        char *prefix = alloca(sizeof("[] in request::") + 32 + strlen(module)), *p = prefix;
-        p += sprintf(p, "[%s] in request:", module);
-        if (req->path.len < 32) {
-            memcpy(p, req->path.base, req->path.len);
-            p += req->path.len;
-        } else {
-            memcpy(p, req->path.base, 29);
-            p += 29;
-            memcpy(p, "...", 3);
-            p += 3;
-        }
-        *p++ = ':';
-        /* use writev(2) to emit error atomically */
-        struct iovec vecs[] = {{prefix, p - prefix}, {errbuf, errlen}};
-        H2O_BUILD_ASSERT(sizeof(vecs) / sizeof(vecs[0]) < IOV_MAX);
-        writev(2, vecs, sizeof(vecs) / sizeof(vecs[0]));
-    }
 }
 
 void h2o_send_redirect(h2o_req_t *req, int status, const char *reason, const char *url, size_t url_len)
@@ -561,8 +541,13 @@ void h2o_send_redirect(h2o_req_t *req, int status, const char *reason, const cha
     }
 
     static h2o_generator_t generator = {NULL, NULL};
+#ifndef _MSC_VER
     static const h2o_iovec_t body_prefix = {H2O_STRLIT("<!DOCTYPE html><TITLE>Moved</TITLE><P>The document has moved <A HREF=\"")};
     static const h2o_iovec_t body_suffix = {H2O_STRLIT("\">here</A>")};
+#else
+	static const h2o_iovec_t body_prefix = { H2O_MY_STRLIT("<!DOCTYPE html><TITLE>Moved</TITLE><P>The document has moved <A HREF=\"") };
+	static const h2o_iovec_t body_suffix = { H2O_MY_STRLIT("\">here</A>") };
+#endif
 
     /* build and send response */
     h2o_iovec_t bufs[3];

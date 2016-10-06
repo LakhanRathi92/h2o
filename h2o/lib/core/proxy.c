@@ -19,10 +19,12 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#ifndef _MSC_VER
 #include <netdb.h>
+#include <sys/socket.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
 #include "picohttpparser.h"
 #include "h2o.h"
 #include "h2o/http1.h"
@@ -79,7 +81,11 @@ static h2o_iovec_t rewrite_location(h2o_mem_pool_t *pool, const char *location, 
                       h2o_iovec_init(loc_parsed.path.base + match->path.len, loc_parsed.path.len - match->path.len));
 
 NoRewrite:
+#ifndef _MSC_VER
     return (h2o_iovec_t){NULL};
+#else
+	return (h2o_iovec_t) { 0 };
+#endif
 }
 
 static h2o_iovec_t build_request_merge_headers(h2o_mem_pool_t *pool, h2o_iovec_t merged, h2o_iovec_t added, int seperator)
@@ -100,35 +106,6 @@ static h2o_iovec_t build_request_merge_headers(h2o_mem_pool_t *pool, h2o_iovec_t
     return merged;
 }
 
-/*
- * A request without neither Content-Length or Transfer-Encoding header implies a zero-length request body (see 6th rule of RFC 7230
- * 3.3.3).
- * OTOH, section 3.3.3 states:
- *
- *   A user agent SHOULD send a Content-Length in a request message when
- *   no Transfer-Encoding is sent and the request method defines a meaning
- *   for an enclosed payload body.  For example, a Content-Length header
- *   field is normally sent in a POST request even when the value is 0
- *   (indicating an empty payload body).  A user agent SHOULD NOT send a
- *   Content-Length header field when the request message does not contain
- *   a payload body and the method semantics do not anticipate such a
- *   body.
- *
- * PUT and POST define a meaning for the payload body, let's emit a
- * Content-Length header if it doesn't exist already, since the server
- * might send a '411 Length Required' response.
- *
- * see also: ML thread starting at https://lists.w3.org/Archives/Public/ietf-http-wg/2016JulSep/0580.html
- */
-static int req_requires_content_length(h2o_req_t *req)
-{
-    int is_put_or_post =
-        (req->method.len >= 1 && req->method.base[0] == 'P' && (h2o_memis(req->method.base, req->method.len, H2O_STRLIT("POST")) ||
-                                                                h2o_memis(req->method.base, req->method.len, H2O_STRLIT("PUT"))));
-
-    return is_put_or_post && h2o_find_header(&req->res.headers, H2O_TOKEN_TRANSFER_ENCODING, -1) == -1;
-}
-
 static h2o_iovec_t build_request(h2o_req_t *req, int keepalive, int is_websocket_handshake, int use_proxy_protocol)
 {
     h2o_iovec_t buf;
@@ -136,7 +113,11 @@ static h2o_iovec_t build_request(h2o_req_t *req, int keepalive, int is_websocket
     char remote_addr[NI_MAXHOST];
     struct sockaddr_storage ss;
     socklen_t sslen;
+#ifndef _MSC_VER
     h2o_iovec_t cookie_buf = {NULL}, xff_buf = {NULL}, via_buf = {NULL};
+#else
+	h2o_iovec_t cookie_buf = { 0 }, xff_buf = { 0 }, via_buf = { 0 };
+#endif
     int preserve_x_forwarded_proto = req->conn->ctx->globalconf->proxy.preserve_x_forwarded_proto;
     int emit_x_forwarded_headers = req->conn->ctx->globalconf->proxy.emit_x_forwarded_headers;
 
@@ -199,7 +180,7 @@ static h2o_iovec_t build_request(h2o_req_t *req, int keepalive, int is_websocket
     buf.base[offset++] = '\r';
     buf.base[offset++] = '\n';
     assert(offset <= buf.len);
-    if (req->entity.base != NULL || req_requires_content_length(req)) {
+    if (req->entity.base != NULL) {
         RESERVE(sizeof("content-length: " H2O_UINT64_LONGEST_STR) - 1);
         offset += sprintf(buf.base + offset, "content-length: %zu\r\n", req->entity.len);
     }
@@ -371,17 +352,6 @@ static int on_body(h2o_http1client_t *client, const char *errstr)
     return 0;
 }
 
-static char compress_hint_to_enum(const char *val, size_t len)
-{
-    if (h2o_lcstris(val, len, H2O_STRLIT("on"))) {
-        return H2O_COMPRESS_HINT_ENABLE;
-    }
-    if (h2o_lcstris(val, len, H2O_STRLIT("off"))) {
-        return H2O_COMPRESS_HINT_DISABLE;
-    }
-    return H2O_COMPRESS_HINT_AUTO;
-}
-
 static h2o_http1client_body_cb on_head(h2o_http1client_t *client, const char *errstr, int minor_version, int status,
                                        h2o_iovec_t msg, h2o_http1client_header_t *headers, size_t num_headers)
 {
@@ -432,9 +402,6 @@ static h2o_http1client_body_cb on_head(h2o_http1client_t *client, const char *er
                 goto AddHeaderDuped;
             } else if (token == H2O_TOKEN_LINK) {
                 h2o_push_path_in_link_header(req, headers[i].value, headers[i].value_len);
-            } else if (token == H2O_TOKEN_X_COMPRESS_HINT) {
-                req->compress_hint = compress_hint_to_enum(headers[i].value, headers[i].value_len);
-                goto Skip;
             }
         /* default behaviour, transfer the header downstream */
         AddHeaderDuped:

@@ -15,6 +15,7 @@ hosts:
     http2-debug-state: minimum
     paths:
       /:
+        mruby.handler: proc {|env| [399, {}, [] ] }
         file.dir: @{[ DOC_ROOT ]}
 EOT
 
@@ -41,15 +42,13 @@ EOT
 };
 
 subtest 'hpack' => sub {
-    plan skip_all => "curl does not support HTTP/2"
-        unless curl_supports_http2();
-
     my $server = spawn_h2o(<< "EOT");
 hosts:
   default:
     http2-debug-state: hpack
     paths:
       /:
+        mruby.handler: proc {|env| [399, {}, [] ] }
         file.dir: @{[ DOC_ROOT ]}
 EOT
 

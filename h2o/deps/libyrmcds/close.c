@@ -3,8 +3,10 @@
 #include "yrmcds.h"
 
 #include <stdlib.h>
+#ifndef _MSC_VER
 #include <unistd.h>
-
+#else
+#endif
 yrmcds_error yrmcds_close(yrmcds* c) {
     if( c == NULL )
         return YRMCDS_BAD_ARGUMENT;

@@ -33,7 +33,11 @@ void test_lib__common__cache_c(void)
 {
     h2o_cache_t *cache = h2o_cache_create(H2O_CACHE_FLAG_EARLY_UPDATE, 1024, 1000, on_destroy);
     uint64_t now = 0;
+#ifndef _MSC_VER
     h2o_iovec_t key = {H2O_STRLIT("key")};
+#else
+	h2o_iovec_t key = { H2O_MY_STRLIT("key") };
+#endif
     h2o_cache_ref_t *ref;
 
     /* fetch "key" */

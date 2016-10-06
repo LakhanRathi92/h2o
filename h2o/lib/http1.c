@@ -319,7 +319,11 @@ static ssize_t fixup_request(struct st_h2o_http1_conn_t *conn, struct phr_header
                              h2o_iovec_t *expect)
 {
     ssize_t entity_header_index;
+#ifndef _MSC_VER
     h2o_iovec_t connection = {NULL, 0}, host = {NULL, 0}, upgrade = {NULL, 0};
+#else
+	h2o_iovec_t connection = {  0, NULL }, host = {0, NULL }, upgrade = {0, NULL};
+#endif
 
     expect->base = NULL;
     expect->len = 0;
@@ -402,12 +406,21 @@ static void send_bad_request_on_complete(h2o_socket_t *sock, const char *err)
 
 static void send_bad_request(struct st_h2o_http1_conn_t *conn)
 {
-    const static h2o_iovec_t resp = {H2O_STRLIT("HTTP/1.1 400 Bad Request\r\n"
-                                                "Content-Type: text/plain; charset=utf-8\r\n"
-                                                "Connection: close\r\n"
-                                                "Content-Length: 11\r\n"
-                                                "\r\n"
-                                                "Bad Request")};
+#ifndef _MSC_VER
+	const static h2o_iovec_t resp = { H2O_STRLIT("HTTP/1.1 400 Bad Request\r\n"
+		"Content-Type: text/plain; charset=utf-8\r\n"
+		"Connection: close\r\n"
+		"Content-Length: 11\r\n"
+		"\r\n"
+		"Bad Request") };
+#else
+	const static h2o_iovec_t resp = { H2O_MY_STRLIT("HTTP/1.1 400 Bad Request\r\n"
+		"Content-Type: text/plain; charset=utf-8\r\n"
+		"Connection: close\r\n"
+		"Content-Length: 11\r\n"
+		"\r\n"
+		"Bad Request") };
+#endif
 
     assert(conn->req.version == 0 && "request has not been parsed successfully");
     h2o_socket_write(conn->sock, (h2o_iovec_t *)&resp, 1, send_bad_request_on_complete);
@@ -444,7 +457,11 @@ static void handle_incoming_request(struct st_h2o_http1_conn_t *conn)
                                        H2O_SEND_ERROR_HTTP1_CLOSE_CONNECTION);
                     return;
                 }
+#ifndef _MSC_VER
                 static const h2o_iovec_t res = {H2O_STRLIT("HTTP/1.1 100 Continue\r\n\r\n")};
+#else
+				static const h2o_iovec_t res = { H2O_MY_STRLIT("HTTP/1.1 100 Continue\r\n\r\n") };
+#endif
                 h2o_socket_write(conn->sock, (void *)&res, 1, on_continue_sent);
             }
             if (create_entity_reader(conn, headers + entity_body_header_index) != 0) {
@@ -471,7 +488,11 @@ static void handle_incoming_request(struct st_h2o_http1_conn_t *conn)
         /* upgrade to HTTP/2 if the request starts with: PRI * HTTP/2 */
         if (conn->super.ctx->globalconf->http1.upgrade_to_http2) {
             /* should check up to the first octet that phr_parse_request returns an error */
+#ifndef _MSC_VER
             static const h2o_iovec_t HTTP2_SIG = {H2O_STRLIT("PRI * HTTP/2")};
+#else
+			static const h2o_iovec_t HTTP2_SIG = { H2O_MY_STRLIT("PRI * HTTP/2") };
+#endif
             if (conn->sock->input->size >= HTTP2_SIG.len && memcmp(conn->sock->input->bytes, HTTP2_SIG.base, HTTP2_SIG.len) == 0) {
                 h2o_accept_ctx_t accept_ctx = {conn->super.ctx, conn->super.hosts};
                 h2o_socket_t *sock = conn->sock;
@@ -630,7 +651,11 @@ static size_t flatten_headers(char *buf, h2o_req_t *req, const char *connection)
                  * - https://www.igvita.com/2013/05/01/deploying-webp-via-accept-content-negotiation/
                  */
                 if (is_msie(req)) {
+#ifndef _MSC_VER
                     static h2o_header_t cache_control_private = {&H2O_TOKEN_CACHE_CONTROL->buf, {H2O_STRLIT("private")}};
+#else
+					static h2o_header_t cache_control_private = { &H2O_TOKEN_CACHE_CONTROL->buf,{ H2O_MY_STRLIT("private") } };
+#endif
                     header = &cache_control_private;
                 }
             }
@@ -652,11 +677,20 @@ static size_t flatten_headers(char *buf, h2o_req_t *req, const char *connection)
 
 static void proceed_pull(struct st_h2o_http1_conn_t *conn, size_t nfilled)
 {
+#ifndef _MSC_VER
     h2o_iovec_t buf = {conn->_ostr_final.pull.buf, nfilled};
+#else
+	h2o_iovec_t buf = { nfilled , conn->_ostr_final.pull.buf };
+#endif
+
     h2o_send_state_t send_state;
 
     if (buf.len < MAX_PULL_BUF_SZ) {
+#ifndef _MSC_VER
         h2o_iovec_t cbuf = {buf.base + buf.len, MAX_PULL_BUF_SZ - buf.len};
+#else
+		h2o_iovec_t cbuf = { MAX_PULL_BUF_SZ - buf.len , buf.base + buf.len };
+#endif
         send_state = h2o_pull(&conn->req, conn->_ostr_final.pull.cb, &cbuf);
         if (send_state == H2O_SEND_STATE_ERROR) {
             conn->req.http1_is_persistent = 0;
@@ -706,7 +740,11 @@ void finalostream_send(h2o_ostream_t *_self, h2o_req_t *req, h2o_iovec_t *inbufs
 {
     struct st_h2o_http1_finalostream_t *self = (void *)_self;
     struct st_h2o_http1_conn_t *conn = (struct st_h2o_http1_conn_t *)req->conn;
+#ifndef _MSC_VER
     h2o_iovec_t *bufs = alloca(sizeof(h2o_iovec_t) * (inbufcnt + 1));
+#else
+	h2o_iovec_t *bufs = _alloca(sizeof(h2o_iovec_t) * (inbufcnt + 1));
+#endif
     int bufcnt = 0;
 
     assert(self == &conn->_ostr_final);
@@ -825,9 +863,11 @@ void h2o_http1_upgrade(h2o_req_t *req, h2o_iovec_t *inbufs, size_t inbufcnt, h2o
     struct st_h2o_http1_conn_t *conn = (void *)req->conn;
 
     assert(req->version <= 0x200); /* TODO find a better way to assert instanceof(req->conn) == struct st_h2o_http1_conn_t */
-
+#ifndef _MSC_VER
     h2o_iovec_t *bufs = alloca(sizeof(h2o_iovec_t) * (inbufcnt + 1));
-
+#else
+	h2o_iovec_t *bufs = _alloca(sizeof(h2o_iovec_t) * (inbufcnt + 1));
+#endif
     conn->upgrade.data = user_data;
     conn->upgrade.cb = on_complete;
 

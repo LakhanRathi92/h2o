@@ -22,12 +22,16 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#ifndef _MSC_VER
 #include <netdb.h>
 #include <netinet/in.h>
 #include <spawn.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/socket.h>
+#else
+#include <io.h>
+#endif
 #include <sys/types.h>
 #include "h2o.h"
 #include "h2o/serverutil.h"
@@ -78,14 +82,24 @@ int h2o_access_log_open_log(const char *path)
         pid_t pid;
         char *argv[4] = {"/bin/sh", "-c", (char *)(path + 1), NULL};
         /* create pipe */
+#ifndef _MSC_VER
         if (pipe(pipefds) != 0) {
             perror("pipe failed");
             return -1;
         }
+#else
+		if (_pipe(pipefds,4096,O_BINARY) == -1) {
+			perror("pipe failed");
+			return -1;
+		}
+#endif
+
+#ifndef _MSC_VER
         if (fcntl(pipefds[1], F_SETFD, FD_CLOEXEC) == -1) {
             perror("failed to set FD_CLOEXEC on pipefds[1]");
             return -1;
         }
+#endif
         /* spawn the logger */
         int mapped_fds[] = {pipefds[0], 0, /* map pipefds[0] to stdin */
                             -1};
@@ -97,12 +111,18 @@ int h2o_access_log_open_log(const char *path)
         close(pipefds[0]);
         fd = pipefds[1];
     } else {
+#ifndef _MSC_VER
         if ((fd = open(path, O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0644)) == -1) {
+			//(owning) User: read & write
+			//*Group: read
+			//* Other : read
+#else
+		if ((fd = _open(path, O_CREAT | O_WRONLY | O_APPEND, _O_RDWR)) == -1) {			
+#endif
             fprintf(stderr, "failed to open log file:%s:%s\n", path, strerror(errno));
             return -1;
         }
     }
-
     return fd;
 }
 

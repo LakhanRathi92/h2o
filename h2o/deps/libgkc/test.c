@@ -23,8 +23,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-
+#include <conio.h>
 #include "gkc.h"
+
 
 void print_query(struct gkc_summary *s, double q)
 {
@@ -77,11 +78,24 @@ int main(void)
 
 #define tofile 0
 	if (tofile) {
+#ifndef _MSC_VER
 		out = fopen("data", "w+");
+#else
+		fopen_s(&out, "data", "w+");
+#endif
 	}
+
+#ifndef _MSC_VER
 	srandom(time(NULL));
+#else
+	srand(time(NULL));
+#endif
 	for (i = 0; i < 10 * 1000 * 1000; i++) {
+#ifndef _MSC_VER
 		long r = random() % 10000;
+#else
+		long r = rand() % 10000;
+#endif
 		gkc_insert_value(summary, r);
 		if (tofile) {
 			fprintf(out, "%ld\n", r);
@@ -110,7 +124,11 @@ test_combine:
 	s2 = gkc_summary_alloc(0.01);
 
 	for (i = 0; i < 1 * 10 * 1000; i++) {
+#ifndef _MSC_VER
 		long r = random() % 10000;
+#else
+		long r = rand() % 10000;
+#endif
 		gkc_insert_value(s1, r);
 	}
 #if 0
@@ -137,5 +155,7 @@ test_combine:
 
 	gkc_summary_free(snew);
 
+	//debug:
+	_getch();
 	return 0;
 }

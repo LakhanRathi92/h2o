@@ -120,7 +120,11 @@ static void *worker_main(void *_unused)
 
 void test_lib__common__multithread_c(void)
 {
+#ifndef _MSC_VER
     pthread_t tid;
+#else
+	uv_thread_t tid;
+#endif
 
     main_thread.loop = create_loop();
     main_thread.queue = h2o_multithread_create_queue(main_thread.loop);
@@ -130,7 +134,11 @@ void test_lib__common__multithread_c(void)
     worker_thread.queue = h2o_multithread_create_queue(worker_thread.loop);
     h2o_multithread_register_receiver(worker_thread.queue, &worker_thread.ping_receiver, on_ping);
 
+#ifndef _MSC_VER
     pthread_create(&tid, NULL, worker_main, NULL);
+#else
+	uv_thread_create(&tid, worker_main, NULL);
+#endif
 
     /* send first message */
     send_empty_message(&worker_thread.ping_receiver);
@@ -142,9 +150,11 @@ void test_lib__common__multithread_c(void)
         h2o_evloop_run(main_thread.loop);
 #endif
     }
-
+#ifndef _MSC_VER
     pthread_join(tid, NULL);
-
+#else
+	uv_thread_join(&tid);
+#endif
     h2o_multithread_unregister_receiver(worker_thread.queue, &worker_thread.ping_receiver);
     h2o_multithread_destroy_queue(worker_thread.queue);
     destroy_loop(worker_thread.loop);

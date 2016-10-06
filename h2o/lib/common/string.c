@@ -333,10 +333,10 @@ h2o_iovec_t h2o_uri_escape(h2o_mem_pool_t *pool, const char *s, size_t l, const 
     */
     for (i = 0; i != l; ++i) {
         int ch = s[i];
-        if (('A' <= ch && ch <= 'Z') || ('a' <= ch && ch <= 'z') || ('0' <= ch && ch <= '9') || ch == '-' || ch == '.' ||
-            ch == '_' || ch == '~' || ch == '!' || ch == '$' || ch == '&' || ch == '\'' || ch == '(' || ch == ')' || ch == '*' ||
-            ch == '+' || ch == ',' || ch == ';' || ch == '=' ||
-            (ch != '\0' && preserve_chars != NULL && strchr(preserve_chars, ch) != NULL)) {
+        if (ch >= 0x80 || ('A' <= ch && ch <= 'Z') || ('a' <= ch && ch <= 'z') || ('0' <= ch && ch <= '9') || ch == '-' ||
+            ch == '.' || ch == '_' || ch == '~' || ch == '!' || ch == '$' || ch == '&' || ch == '\'' || ch == '(' || ch == ')' ||
+            ch == '*' || ch == '+' || ch == ',' || ch == ';' || ch == '=' ||
+            (preserve_chars != NULL && strchr(preserve_chars, ch) != NULL)) {
             encoded.base[encoded.len++] = ch;
         } else {
             encoded.base[encoded.len++] = '%';
@@ -441,16 +441,30 @@ const char *h2o_next_token(h2o_iovec_t *iter, int separator, size_t *element_len
     *iter = h2o_iovec_init(cur, end - cur);
     *element_len = token_end - token_start;
     if (value != NULL)
+#ifndef _MSC_VER
         *value = (h2o_iovec_t){NULL};
+#else
+		*value = (h2o_iovec_t) { 0 };
+#endif
     return token_start;
 
 FindValue:
     *iter = h2o_iovec_init(cur, end - cur);
     *element_len = token_end - token_start;
     if ((value->base = (char *)h2o_next_token(iter, separator, &value->len, NULL)) == NULL) {
+#ifndef _MSC_VER
         *value = (h2o_iovec_t){"", 0};
+#else
+		*value = (h2o_iovec_t) { 0 , ""};
+#endif
+
+#ifndef _MSC_VER
     } else if (h2o_memis(value->base, value->len, H2O_STRLIT(","))) {
         *value = (h2o_iovec_t){"", 0};
+#else
+		} else if (h2o_memis(value->base, value->len, H2O_STRLIT(","))) {
+        *value = (h2o_iovec_t){0 , ""};
+#endif
         iter->base -= 1;
         iter->len += 1;
     }
@@ -499,7 +513,11 @@ h2o_iovec_t h2o_htmlescape(h2o_mem_pool_t *pool, const char *src, size_t len)
     /* escape and return the result if necessary */
     if (add_size != 0) {
         /* allocate buffer and fill in the chars that are known not to require escaping */
+#ifndef _MSC_VER
         h2o_iovec_t escaped = {h2o_mem_alloc_pool(pool, len + add_size + 1), 0};
+#else
+		h2o_iovec_t escaped = { 0 , h2o_mem_alloc_pool(pool, len + add_size + 1) };
+#endif
         /* fill-in the rest */
         for (s = src; s != end; ++s) {
             switch (*s) {
@@ -529,7 +547,11 @@ h2o_iovec_t h2o_htmlescape(h2o_mem_pool_t *pool, const char *src, size_t len)
 
 h2o_iovec_t h2o_concat_list(h2o_mem_pool_t *pool, h2o_iovec_t *list, size_t count)
 {
+#ifndef _MSC_VER
     h2o_iovec_t ret = {NULL, 0};
+#else
+	h2o_iovec_t ret = { 0 , NULL };
+#endif
     size_t i;
 
     /* calc the length */

@@ -23,6 +23,17 @@
 #include "../../test.h"
 #include "../../../../lib/core/util.c"
 
+ // Linker issues with LibUV under windows
+#ifdef _MSC_VER
+ //#pragma comment(lib, "Ws2_32.lib")
+#pragma comment(lib, "IPHLPAPI.lib") 
+#pragma comment(lib, "Psapi.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "Userenv.lib")
+#endif
+
+
 static void test_parse_proxy_line(void)
 {
     char in[256];
@@ -73,8 +84,14 @@ static void test_extract_push_path_from_link_header(void)
     h2o_mem_pool_t pool;
     h2o_iovec_vector_t paths;
     h2o_iovec_t path;
+#ifndef _MSC_VER
     h2o_iovec_t base_path = {H2O_STRLIT("/basepath/")}, input_authority = {H2O_STRLIT("basehost")},
                 other_authority = {H2O_STRLIT("otherhost")};
+#else
+	h2o_iovec_t base_path = {H2O_MY_STRLIT("/basepath/")}, input_authority = {H2O_MY_STRLIT("basehost")},
+                other_authority = {H2O_MY_STRLIT("otherhost")};
+#endif
+
 #define INPUT base_path, &H2O_URL_SCHEME_HTTP, input_authority
     h2o_mem_init_pool(&pool);
 
@@ -177,7 +194,11 @@ static void test_extract_push_path_from_link_header(void)
 
 void test_build_destination(void)
 {
+#ifndef _MSC_VER
     h2o_pathconf_t conf_not_slashed = {NULL, {H2O_STRLIT("/abc")}}, conf_slashed = {NULL, {H2O_STRLIT("/abc/")}};
+#else
+	h2o_pathconf_t conf_not_slashed = { NULL,{ H2O_MY_STRLIT("/abc") } }, conf_slashed = { NULL,{ H2O_MY_STRLIT("/abc/") } };
+#endif
     h2o_req_t req;
     h2o_iovec_t dest;
     int escape;
@@ -266,7 +287,11 @@ void test_build_destination_escaping(void)
     h2o_init_request(&req, NULL, NULL);
 
     for (i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
+#ifndef _MSC_VER
         h2o_pathconf_t conf = {NULL, {tests[i].pathconf, strlen(tests[i].pathconf)}};
+#else
+		h2o_pathconf_t conf = { NULL,{ strlen(tests[i].pathconf) , tests[i].pathconf } };
+#endif
         req.pathconf = &conf;
         req.path = req.input.path = h2o_iovec_init(tests[i].input, strlen(tests[i].input));
         req.norm_indexes = NULL;

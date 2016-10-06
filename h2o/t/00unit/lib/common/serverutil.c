@@ -23,12 +23,33 @@
 #include "../../test.h"
 #include "../../../../lib/common/serverutil.c"
 
+#ifdef _MSC_VER
+int setenv(const char *name, const char *value, int overwrite)
+{
+	int errcode = 0;
+	if (!overwrite) {
+		size_t envsize = 0;
+		errcode = getenv_s(&envsize, NULL, 0, name);
+		if (errcode || envsize) return errcode;
+	}
+	return _putenv_s(name, value);
+}
+// Not present in windows
+#define WEXITSTATUS(w) (w)
+#define WIFEXITED(w) (true)
+#endif
+
 static void test_server_starter(void)
 {
     int *fds;
     size_t num_fds;
 
-    unsetenv("SERVER_STARTER_PORT");
+#ifdef _MSC_VER
+	putenv("SERVER_STARTER_PORT="); //--Should delete the environment variable.
+#else
+	unsetenv("SERVER_STARTER_PORT");
+#endif
+    //unsetenv("SERVER_STARTER_PORT");
     num_fds = h2o_server_starter_get_fds(&fds);
     ok(num_fds == 0);
 
@@ -80,7 +101,11 @@ static void test_read_command(void)
         ok(h2o_memis(resp->bytes, resp->size, H2O_STRLIT("hello")));
         h2o_buffer_dispose(&resp);
     }
+#ifndef _MSC_VER
     unsetenv("READ_COMMAND_EXIT_STATUS");
+#else
+	putenv("READ_COMMAND_EXIT_STATUS=");
+#endif
 
     /* command not an executable */
     argv[0] = "t/00unit/assets";

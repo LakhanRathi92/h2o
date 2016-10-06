@@ -164,7 +164,11 @@ static void test_hpack(void)
 
     note("decode_huffman");
     {
+#ifndef _MSC_VER
         h2o_iovec_t huffcode = {H2O_STRLIT("\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff")};
+#else
+		h2o_iovec_t huffcode = { H2O_MY_STRLIT("\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff") };
+#endif
         uint8_t flags = 0;
         h2o_iovec_t *decoded = decode_huffman(&pool, (const uint8_t *)huffcode.base, huffcode.len, &flags);
         ok(decoded->len == sizeof("www.example.com") - 1);
@@ -288,7 +292,11 @@ static void test_hpack(void)
 
     note("encode_huffman");
     {
+#ifndef _MSC_VER
         h2o_iovec_t huffcode = {H2O_STRLIT("\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff")};
+#else
+		h2o_iovec_t huffcode = { H2O_MY_STRLIT("\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff") };
+#endif
         char buf[sizeof("www.example.com")];
         size_t l = encode_huffman((uint8_t *)buf, (uint8_t *)H2O_STRLIT("www.example.com"));
         ok(l == huffcode.len);
@@ -366,6 +374,7 @@ static void parse_and_compare_request(h2o_hpack_header_table_t *ht, const char *
 
 static void test_hpack_push(void)
 {
+#ifndef _MSC_VER
     const static h2o_iovec_t method = {H2O_STRLIT("GET")}, authority = {H2O_STRLIT("example.com")},
                              user_agent = {H2O_STRLIT(
                                  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0")},
@@ -373,7 +382,15 @@ static void test_hpack_push(void)
                              accept_images = {H2O_STRLIT("image/png,image/*;q=0.8,*/*;q=0.5")},
                              accept_language = {H2O_STRLIT("ja,en-US;q=0.7,en;q=0.3")},
                              accept_encoding = {H2O_STRLIT("gzip, deflate")}, referer = {H2O_STRLIT("https://example.com/")};
-
+#else
+	const static h2o_iovec_t method = { H2O_MY_STRLIT("GET") }, authority = { H2O_MY_STRLIT("example.com") },
+		user_agent = { H2O_MY_STRLIT(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0") },
+		accept_root = { H2O_MY_STRLIT("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8") },
+		accept_images = { H2O_MY_STRLIT("image/png,image/*;q=0.8,*/*;q=0.5") },
+		accept_language = { H2O_MY_STRLIT("ja,en-US;q=0.7,en;q=0.3") },
+		accept_encoding = { H2O_MY_STRLIT("gzip, deflate") }, referer = { H2O_MY_STRLIT("https://example.com/") };
+#endif
     h2o_hpack_header_table_t encode_table = {NULL}, decode_table = {NULL};
     encode_table.hpack_capacity = decode_table.hpack_capacity = 4096;
     h2o_req_t req = {NULL};
@@ -393,10 +410,17 @@ static void test_hpack_push(void)
 
     /* serialize, deserialize, and compare */
     h2o_hpack_flatten_request(&buf, &encode_table, 0, 16384, &req, 0);
+#ifndef _MSC_VER
     parse_and_compare_request(&decode_table, buf->bytes, buf->size, method, &H2O_URL_SCHEME_HTTPS, authority,
                               h2o_iovec_init(H2O_STRLIT("/")), H2O_TOKEN_USER_AGENT->buf, user_agent, H2O_TOKEN_ACCEPT->buf,
                               accept_root, H2O_TOKEN_ACCEPT_LANGUAGE->buf, accept_language, H2O_TOKEN_ACCEPT_ENCODING->buf,
                               accept_encoding, (h2o_iovec_t){NULL});
+#else
+	parse_and_compare_request(&decode_table, buf->bytes, buf->size, method, &H2O_URL_SCHEME_HTTPS, authority,
+		h2o_iovec_init(H2O_STRLIT("/")), H2O_TOKEN_USER_AGENT->buf, user_agent, H2O_TOKEN_ACCEPT->buf,
+		accept_root, H2O_TOKEN_ACCEPT_LANGUAGE->buf, accept_language, H2O_TOKEN_ACCEPT_ENCODING->buf,
+		accept_encoding, (h2o_iovec_t) { 0 });
+#endif
     h2o_buffer_consume(&buf, buf->size);
 
     /* setup second request */
@@ -408,6 +432,7 @@ static void test_hpack_push(void)
     h2o_add_header(&req.pool, &req.headers, H2O_TOKEN_ACCEPT_ENCODING, accept_encoding.base, accept_encoding.len);
     h2o_add_header(&req.pool, &req.headers, H2O_TOKEN_REFERER, referer.base, referer.len);
 
+#ifndef _MSC_VER
     /* serialize, deserialize, and compare */
     h2o_hpack_flatten_request(&buf, &encode_table, 0, 16384, &req, 0);
     parse_and_compare_request(
@@ -415,16 +440,32 @@ static void test_hpack_push(void)
         H2O_TOKEN_USER_AGENT->buf, user_agent, H2O_TOKEN_ACCEPT->buf, accept_images, H2O_TOKEN_ACCEPT_LANGUAGE->buf,
         accept_language, H2O_TOKEN_ACCEPT_ENCODING->buf, accept_encoding, H2O_TOKEN_REFERER->buf, referer, (h2o_iovec_t){NULL});
     h2o_buffer_consume(&buf, buf->size);
+#else
+	/* serialize, deserialize, and compare */
+	h2o_hpack_flatten_request(&buf, &encode_table, 0, 16384, &req, 0);
+	parse_and_compare_request(
+		&decode_table, buf->bytes, buf->size, method, &H2O_URL_SCHEME_HTTPS, authority, h2o_iovec_init(H2O_STRLIT("/banner.jpg")),
+		H2O_TOKEN_USER_AGENT->buf, user_agent, H2O_TOKEN_ACCEPT->buf, accept_images, H2O_TOKEN_ACCEPT_LANGUAGE->buf,
+		accept_language, H2O_TOKEN_ACCEPT_ENCODING->buf, accept_encoding, H2O_TOKEN_REFERER->buf, referer, (h2o_iovec_t) { 0 });
+	h2o_buffer_consume(&buf, buf->size);
+#endif
 
     /* setup third request (headers are the same) */
     req.input.path = h2o_iovec_init(H2O_STRLIT("/icon.png"));
 
     /* serialize, deserialize, and compare */
     h2o_hpack_flatten_request(&buf, &encode_table, 0, 16384, &req, 0);
+#ifndef _MSC_VER
     parse_and_compare_request(&decode_table, buf->bytes, buf->size, method, &H2O_URL_SCHEME_HTTPS, authority,
                               h2o_iovec_init(H2O_STRLIT("/icon.png")), H2O_TOKEN_USER_AGENT->buf, user_agent, H2O_TOKEN_ACCEPT->buf,
                               accept_images, H2O_TOKEN_ACCEPT_LANGUAGE->buf, accept_language, H2O_TOKEN_ACCEPT_ENCODING->buf,
                               accept_encoding, H2O_TOKEN_REFERER->buf, referer, (h2o_iovec_t){NULL});
+#else
+	parse_and_compare_request(&decode_table, buf->bytes, buf->size, method, &H2O_URL_SCHEME_HTTPS, authority,
+		h2o_iovec_init(H2O_STRLIT("/icon.png")), H2O_TOKEN_USER_AGENT->buf, user_agent, H2O_TOKEN_ACCEPT->buf,
+		accept_images, H2O_TOKEN_ACCEPT_LANGUAGE->buf, accept_language, H2O_TOKEN_ACCEPT_ENCODING->buf,
+		accept_encoding, H2O_TOKEN_REFERER->buf, referer, (h2o_iovec_t) { 0 });
+#endif
     h2o_buffer_consume(&buf, buf->size);
 
     h2o_buffer_dispose(&buf);

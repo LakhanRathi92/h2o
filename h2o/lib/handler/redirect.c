@@ -68,7 +68,11 @@ static void redirect_internally(h2o_redirect_handler_t *self, h2o_req_t *req, h2
         break;
     default:
         method = h2o_iovec_init(H2O_STRLIT("GET"));
+#ifndef _MSC_VER
         req->entity = (h2o_iovec_t){NULL};
+#else
+		req->entity = (h2o_iovec_t) { 0 };
+#endif
         break;
     }
 

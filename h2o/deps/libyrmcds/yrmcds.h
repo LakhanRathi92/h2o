@@ -14,9 +14,13 @@
 /// Library version number such as 10201.
 #define LIBYRMCDS_VERSION_NUMBER  10300
 
+#ifndef _MSC_VER
 #include <pthread.h>
+#else
+#endif
 #include <stddef.h>
 #include <stdint.h>
+#include "uv.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +33,11 @@ typedef struct {
     int sock;               ///< the socket file descriptor.
 
     /* for sending */
+#ifndef _MSC_VER
     pthread_mutex_t lock;   ///< guard lock to serialize sends.
+#else
+	uv_mutex_t lock;
+#endif
     uint32_t serial;        ///< last issued serial number.
     size_t compress_size;   ///< threshold data size for LZ4 compression.
 
@@ -840,8 +848,12 @@ typedef struct {
  * Data structure of a connection to yrmcds counter server.
  */
 typedef struct {
+#ifndef _MSC_VER
     pthread_mutex_t lock;        ///< guard lock to serialize sends.
-    yrmcds_cnt_statistics stats; ///< the result of `stats` command.
+#else
+	uv_mutex_t lock;
+#endif
+	yrmcds_cnt_statistics stats; ///< the result of `stats` command.
     char* recvbuf;               ///< received data buffer.
     size_t capacity;             ///< buffer capacity.
     size_t used;                 ///< used bytes.

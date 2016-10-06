@@ -4,16 +4,24 @@
 
 #include <errno.h>
 #include <fcntl.h>
+
+#ifndef _MSC_VER
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#else
+#include<Winsock2.h>//mstcpip.h
+#include <ws2tcpip.h> //getaddrinfo
+#include <mstcpip.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 // workaround for a known-bug in NetBSD, from https://lists.gnu.org/archive/html/bug-gnulib/2010-02/msg00071.html
 #ifndef AI_V4MAPPED
@@ -33,8 +41,8 @@ static yrmcds_error connect_to_server(const char* node, uint16_t port, int* serv
     hint.ai_family = AF_INET;  // prefer IPv4
     hint.ai_socktype = SOCK_STREAM;
     hint.ai_flags = AI_NUMERICSERV|AI_ADDRCONFIG;
-    int e = getaddrinfo(node, sport, &hint, &res);
-    if( e == EAI_FAMILY || e == EAI_NONAME
+	int e = getaddrinfo(node, sport, &hint, &res);
+	if( e == EAI_FAMILY || e == EAI_NONAME
 #ifdef EAI_ADDRFAMILY
         || e == EAI_ADDRFAMILY
 #endif
@@ -48,12 +56,17 @@ static yrmcds_error connect_to_server(const char* node, uint16_t port, int* serv
         hint.ai_flags = AI_NUMERICSERV|AI_V4MAPPED;
         e = getaddrinfo(node, sport, &hint, &res);
     }
+#ifndef _MSC_VER
     if( e == EAI_SYSTEM ) {
-        return YRMCDS_SYSTEM_ERROR;
-    } else if( e != 0 ) {
-        return YRMCDS_NOT_RESOLVED;
-    }
-
+		return YRMCDS_SYSTEM_ERROR;
+	}
+	else if (e != 0) {
+		return YRMCDS_NOT_RESOLVED;
+	}
+#else
+	
+#endif
+    
     int s = socket(res->ai_family,
                    res->ai_socktype
 #ifdef __linux__
@@ -67,28 +80,43 @@ static yrmcds_error connect_to_server(const char* node, uint16_t port, int* serv
         return YRMCDS_SYSTEM_ERROR;
     }
 #ifndef __linux__
+#ifndef _MSC_VER
     fl = fcntl(s, F_GETFD, 0);
     fcntl(s, F_SETFD, fl | FD_CLOEXEC);
     fl = fcntl(s, F_GETFL, 0);
     fcntl(s, F_SETFL, fl | O_NONBLOCK);
 #endif
+#endif
     e = connect(s, res->ai_addr, res->ai_addrlen);
     freeaddrinfo(res);
     if( e == -1 && errno != EINPROGRESS ) {
         e = errno;
+#ifndef _MSC_VER
         close(s);
+#else
+		closesocket(s);
+#endif
         errno = e;
         return YRMCDS_SYSTEM_ERROR;
     }
 
     if( e != 0 ) {
+#ifndef _MSC_VER
         struct pollfd fds;
         fds.fd = s;
         fds.events = POLLOUT;
-        int n = poll(&fds, 1, 5000);
+        int n = poll(&fds, 1, 5000); 
+#else
+		
+
+#endif
         if( n == 0 ) { // timeout
+#ifndef _MSC_VER
             close(s);
-            return YRMCDS_TIMEOUT;
+#else
+			closesocket(s);
+#endif
+			return YRMCDS_TIMEOUT;
         }
         if( n == -1 ) {
             e = errno;

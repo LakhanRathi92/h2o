@@ -19,7 +19,10 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#ifndef _MSC_VER
 #include <sys/un.h>
+#else
+#endif
 #include "h2o.h"
 #include "h2o/socketpool.h"
 
@@ -142,7 +145,11 @@ void h2o_proxy_register_reverse_proxy(h2o_pathconf_t *pathconf, h2o_url_t *upstr
     self->super.on_req = on_req;
     if (config->keepalive_timeout != 0) {
         self->sockpool = h2o_mem_alloc(sizeof(*self->sockpool));
+#ifndef _MSC_VER
         struct sockaddr_un sa;
+#else
+		struct sockaddr sa;
+#endif
         const char *to_sa_err;
         int is_ssl = upstream->scheme == &H2O_URL_SCHEME_HTTPS;
         if ((to_sa_err = h2o_url_host_to_sun(upstream->host, &sa)) == h2o_url_host_to_sun_err_is_not_unix_socket) {
@@ -157,5 +164,5 @@ void h2o_proxy_register_reverse_proxy(h2o_pathconf_t *pathconf, h2o_url_t *upstr
     h2o_strtolower(self->upstream.host.base, self->upstream.host.len);
     self->config = *config;
     if (self->config.ssl_ctx != NULL)
-        SSL_CTX_up_ref(self->config.ssl_ctx);
+        CRYPTO_add(&self->config.ssl_ctx->references, 1, CRYPTO_LOCK_SSL_CTX);
 }

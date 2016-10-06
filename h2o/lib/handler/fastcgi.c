@@ -220,7 +220,11 @@ static int envname_is_headername(const h2o_iovec_t *env, const h2o_iovec_t *head
 
 static void append_params(h2o_req_t *req, iovec_vector_t *vecs, h2o_fastcgi_config_vars_t *config)
 {
+#ifndef _MSC_VER
     h2o_iovec_t path_info = {NULL};
+#else
+	h2o_iovec_t path_info = { 0 };
+#endif
 
     /* CONTENT_LENGTH */
     if (req->entity.base != NULL) {

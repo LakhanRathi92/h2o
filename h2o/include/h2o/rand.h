@@ -23,7 +23,10 @@
 #define h2o__rand_h
 
 #include <stdlib.h>
+#ifndef _MSC_VER
 #include <unistd.h>
+#else
+#endif
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
 #define h2o_srand()

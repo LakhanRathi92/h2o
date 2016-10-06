@@ -139,8 +139,11 @@ static int calc_gmt_offset(time_t t, struct tm *local)
 {
     struct tm gmt;
     int delta;
-
+#ifndef _MSC_VER
     gmtime_r(&t, &gmt);
+#else
+	gmtime_s(&gmt, &t);
+#endif
     delta = (local->tm_hour - gmt.tm_hour) * 60 + (local->tm_min - gmt.tm_min);
 
     if (local->tm_yday != gmt.tm_yday) {
@@ -157,7 +160,11 @@ static int calc_gmt_offset(time_t t, struct tm *local)
 void h2o_time2str_log(char *buf, time_t time)
 {
     struct tm localt;
+#ifndef _MSC_VER
     localtime_r(&time, &localt);
+#else
+	localtime_s(&localt, &time);
+#endif
     int gmt_off = calc_gmt_offset(time, &localt);
     int gmt_sign;
 

@@ -29,6 +29,12 @@
 #include "h2o.h"
 #include "h2o/http1.h"
 #include "h2o/http2.h"
+#ifdef _MSC_VER
+#include <stdint.h>
+#endif
+
+//typedef type-declaration synonym;
+typedef uint16_t in_port_t;
 
 struct st_h2o_accept_data_t {
     h2o_accept_ctx_t *ctx;
@@ -78,22 +84,28 @@ static void async_resumption_on_get(h2o_iovec_t session_data, void *_accept_data
 static void async_resumption_get(h2o_socket_t *sock, h2o_iovec_t session_id)
 {
     struct st_h2o_accept_data_t *data = sock->data;
-
+	/* Lak:
     data->async_resumption_get_req =
         h2o_memcached_get(async_resumption_context.memc, data->ctx->libmemcached_receiver, session_id, async_resumption_on_get,
                           data, H2O_MEMCACHED_ENCODE_KEY | H2O_MEMCACHED_ENCODE_VALUE);
+	*/
 }
 
 static void async_resumption_new(h2o_iovec_t session_id, h2o_iovec_t session_data)
 {
+
+	/* Lak:
     h2o_memcached_set(async_resumption_context.memc, session_id, session_data,
                       (uint32_t)time(NULL) + async_resumption_context.expiration,
                       H2O_MEMCACHED_ENCODE_KEY | H2O_MEMCACHED_ENCODE_VALUE);
+					  */
 }
 
 static void async_resumption_remove(h2o_iovec_t session_id)
 {
+	/* Lak:
     h2o_memcached_delete(async_resumption_context.memc, session_id, H2O_MEMCACHED_ENCODE_KEY);
+	*/
 }
 
 void h2o_accept_setup_async_ssl_resumption(h2o_memcached_context_t *memc, unsigned expiration)
@@ -107,10 +119,12 @@ void on_accept_timeout(h2o_timeout_entry_t *entry)
 {
     /* TODO log */
     struct st_h2o_accept_data_t *data = H2O_STRUCT_FROM_MEMBER(struct st_h2o_accept_data_t, timeout, entry);
-    if (data->async_resumption_get_req != NULL) {
+    /* Lak:
+	if (data->async_resumption_get_req != NULL) {
         h2o_memcached_cancel_get(async_resumption_context.memc, data->async_resumption_get_req);
         data->async_resumption_get_req = NULL;
     }
+	*/
     h2o_socket_t *sock = data->sock;
     free_accept_data(data);
     h2o_socket_close(sock);
@@ -374,7 +388,11 @@ static void push_one_path(h2o_mem_pool_t *pool, h2o_iovec_vector_t *paths_to_pus
     }
 
     /* check scheme and authority if given URL contains either of the two, or if base is specified */
-    h2o_url_t base = {input_scheme, input_authority, {NULL}, base_path, 65535};
+#ifndef _MSC_VER
+	h2o_url_t base = {input_scheme, input_authority, {NULL}, base_path, 65535};
+#else
+	h2o_url_t base = { input_scheme, input_authority,{ 0 }, base_path, 65535 };
+#endif
     if (base_scheme != NULL) {
         base.scheme = base_scheme;
         base.authority = *base_authority;
@@ -489,7 +507,11 @@ h2o_iovec_t h2o_build_destination(h2o_req_t *req, const char *prefix, size_t pre
             } else {
                 next_unnormalized = req->pathconf->path.len;
             }
+#ifndef _MSC_VER
             parts[num_parts++] = (h2o_iovec_t){req->path.base + next_unnormalized, req->path.len - next_unnormalized};
+#else
+			parts[num_parts++] = (h2o_iovec_t) { req->path.len - next_unnormalized , req->path.base + next_unnormalized};
+#endif
         }
     }
 
@@ -497,10 +519,18 @@ h2o_iovec_t h2o_build_destination(h2o_req_t *req, const char *prefix, size_t pre
 }
 
 /* h2-14 and h2-16 are kept for backwards compatibility, as they are often used */
+#ifndef _MSC_VER
 #define ALPN_ENTRY(s)                                                                                                              \
     {                                                                                                                              \
         H2O_STRLIT(s)                                                                                                              \
     }
+#else
+#define ALPN_ENTRY(s)                                                                                                              \
+    {                                                                                                                              \
+        H2O_MY_STRLIT(s)                                                                                                              \
+    }
+#endif
+
 #define ALPN_PROTOCOLS_CORE ALPN_ENTRY("h2"), ALPN_ENTRY("h2-16"), ALPN_ENTRY("h2-14")
 #define NPN_PROTOCOLS_CORE                                                                                                         \
     "\x02"                                                                                                                         \
@@ -510,14 +540,27 @@ h2o_iovec_t h2o_build_destination(h2o_req_t *req, const char *prefix, size_t pre
     "\x05"                                                                                                                         \
     "h2-14"
 
+#ifndef _MSC_VER
 static const h2o_iovec_t http2_alpn_protocols[] = {ALPN_PROTOCOLS_CORE, {NULL}};
+#else
+static const h2o_iovec_t http2_alpn_protocols[] = { ALPN_PROTOCOLS_CORE,{ 0 } };
+#endif
 const h2o_iovec_t *h2o_http2_alpn_protocols = http2_alpn_protocols;
 
+#ifndef _MSC_VER
 static const h2o_iovec_t alpn_protocols[] = {ALPN_PROTOCOLS_CORE, {H2O_STRLIT("http/1.1")}, {NULL}};
+#else
+static const h2o_iovec_t alpn_protocols[] = { ALPN_PROTOCOLS_CORE,{ H2O_MY_STRLIT("http/1.1") },{ 0 } };
+#endif
+
 const h2o_iovec_t *h2o_alpn_protocols = alpn_protocols;
 
 const char *h2o_http2_npn_protocols = NPN_PROTOCOLS_CORE;
 const char *h2o_npn_protocols = NPN_PROTOCOLS_CORE "\x08"
                                                    "http/1.1";
 
+#ifndef _MSC_VER
 uint64_t h2o_connection_id = 0;
+#else
+LONG h2o_connection_id = 0;
+#endif

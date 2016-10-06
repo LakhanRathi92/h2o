@@ -10,8 +10,12 @@
  *
  */
  
-
+#ifndef _MSC_VER
 #include <strings.h>
+#else
+#include <string.h>
+#endif
+
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 

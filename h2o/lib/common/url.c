@@ -19,16 +19,24 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  */
+#ifndef _MSC_VER
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/un.h>
+#else
+#include <winsock2.h>
+#endif
+//#include <sys/types.h>
 #include "h2o/memory.h"
 #include "h2o/string_.h"
 #include "h2o/url.h"
 
+#ifndef _MSC_VER
 const h2o_url_scheme_t H2O_URL_SCHEME_HTTP = {{H2O_STRLIT("http")}, 80};
 const h2o_url_scheme_t H2O_URL_SCHEME_HTTPS = {{H2O_STRLIT("https")}, 443};
-
+#else
+const h2o_url_scheme_t H2O_URL_SCHEME_HTTP = { { H2O_MY_STRLIT("http") }, 80 };
+const h2o_url_scheme_t H2O_URL_SCHEME_HTTPS = { { H2O_MY_STRLIT("https") }, 443 };
+#endif
 static int decode_hex(int ch)
 {
     if ('0' <= ch && ch <= '9')
@@ -279,8 +287,13 @@ int h2o_url_parse_relative(const char *url, size_t url_len, h2o_url_t *parsed)
         return parse_authority_and_path(p + 2, url_end, parsed);
 
     /* reset authority, host, port, and set path */
+#ifndef _MSC_VER
     parsed->authority = (h2o_iovec_t){NULL};
     parsed->host = (h2o_iovec_t){NULL};
+#else
+	parsed->authority = (h2o_iovec_t) { 0 };
+	parsed->host = (h2o_iovec_t) { 0 };
+#endif
     parsed->_port = 65535;
     parsed->path = h2o_iovec_init(p, url_end - p);
 
@@ -326,7 +339,11 @@ h2o_iovec_t h2o_url_resolve(h2o_mem_pool_t *pool, const h2o_url_t *base, const h
         h2o_url_resolve_path(&base_path, &relative_path);
     } else {
         assert(relative->path.len == 0);
+#ifndef _MSC_VER
         relative_path = (h2o_iovec_t){NULL};
+#else
+		relative_path = (h2o_iovec_t) { 0 };
+#endif
     }
 
 Build:
@@ -390,6 +407,7 @@ void h2o_url_copy(h2o_mem_pool_t *pool, h2o_url_t *dest, const h2o_url_t *src)
     dest->_port = src->_port;
 }
 
+#ifndef _MSC_VER
 const char *h2o_url_host_to_sun(h2o_iovec_t host, struct sockaddr_un *sa)
 {
 #define PREFIX "unix:"
@@ -407,5 +425,24 @@ const char *h2o_url_host_to_sun(h2o_iovec_t host, struct sockaddr_un *sa)
 
 #undef PREFIX
 }
+#else
+const char *h2o_url_host_to_sun(h2o_iovec_t host, struct sockaddr *sa)
+{
+#define PREFIX "unix:"
+
+	if (host.len < sizeof(PREFIX) - 1 || memcmp(host.base, PREFIX, sizeof(PREFIX) - 1) != 0)
+		return h2o_url_host_to_sun_err_is_not_unix_socket;
+
+	if (host.len - sizeof(PREFIX) - 1 >= sizeof(sa->sa_data))
+		return "unix-domain socket path is too long";
+
+	memset(sa, 0, sizeof(*sa));
+	sa->sa_family = AF_UNIX;
+	memcpy(sa->sa_data, host.base + sizeof(PREFIX) - 1, host.len - (sizeof(PREFIX) - 1));
+	return NULL;
+
+#undef PREFIX
+}
+#endif
 
 const char *h2o_url_host_to_sun_err_is_not_unix_socket = "supplied name does not look like an unix-domain socket";

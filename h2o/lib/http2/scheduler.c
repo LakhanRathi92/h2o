@@ -22,6 +22,20 @@
 #include "h2o.h"
 #include "h2o/http2_scheduler.h"
 
+//lak: not sure about this
+#ifdef _MSC_VER
+uint32_t __inline __builtin_clzll(uint64_t value) {
+	if (value == 0)
+		return 64;
+	uint32_t msh = (uint32_t)(value >> 32);
+	uint32_t lsh = (uint32_t)(value & 0xFFFFFFFF);
+	if (msh != 0)
+		return __builtin_clz(msh);
+	return 32 + __builtin_clz(lsh);
+}
+#define __builtin_clzl __builtin_clzll
+#endif
+
 struct st_h2o_http2_scheduler_queue_t {
     uint64_t bits;
     size_t offset;

@@ -21,20 +21,25 @@
  */
 #include <errno.h>
 #include <fcntl.h>
+#ifndef _MSC_VER
 #include <grp.h>
 #include <pthread.h>
 #include <pwd.h>
-#include <signal.h>
 #include <spawn.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #if !defined(_SC_NPROCESSORS_ONLN)
 #include <sys/sysctl.h>
 #endif
+#else
+#include <io.h>
+#endif
+
+#include <signal.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
 #include "cloexec.h"
 #include "h2o/memory.h"
 #include "h2o/serverutil.h"
@@ -43,16 +48,20 @@
 
 void h2o_set_signal_handler(int signo, void (*cb)(int signo))
 {
+#ifdef _MSC_VER
+	signal(signo, cb); //pass the signal number to function, without setting all flags.
+#else
     struct sigaction action;
-
     memset(&action, 0, sizeof(action));
     sigemptyset(&action.sa_mask);
     action.sa_handler = cb;
     sigaction(signo, &action, NULL);
+#endif
 }
 
 int h2o_setuidgid(const char *user)
 {
+#ifndef _MSC_VER
     struct passwd pwbuf, *pw;
     char buf[65536]; /* should be large enough */
 
@@ -77,8 +86,9 @@ int h2o_setuidgid(const char *user)
         fprintf(stderr, "setuid(%d) failed:%s\n", (int)pw->pw_uid, strerror(errno));
         return -1;
     }
-
+#else
     return 0;
+#endif
 }
 
 size_t h2o_server_starter_get_fds(int **_fds)
@@ -136,6 +146,14 @@ static char **build_spawn_env(void)
 
     return newenv;
 }
+
+// Method will be used for uv_spawn exit
+void waitpid(uv_process_t *req, int64_t exit_status, int term_signal) {
+	fprintf(stderr, "Process exited with statu signal %lld\n", exit_status, term_signal);
+	uv_close((uv_handle_t*)req, NULL);
+	//	*CHILD_RETURNED = TRUE;
+}
+
 
 pid_t h2o_spawnp(const char *cmd, char *const *argv, const int *mapped_fds, int cloexec_mutex_is_locked)
 {
@@ -206,8 +224,49 @@ Error:
     errno = errnum;
     return -1;
 
-#else
+#elif defined _MSC_VER //-- : process : https://msdn.microsoft.com/en-us/library/20y988d2.aspx
+	pid_t pid;
+	extern char** environ;
+	uv_loop_t *loop;
+	uv_process_t child_req;
+	uv_process_options_t options = { 0 }; //-- Default initialization must be 0
+	loop = uv_default_loop();
+	//-- Container for file descruptor
+	uv_stdio_container_t child_stdio[3];
+	child_stdio[0].flags = UV_IGNORE;
+	child_stdio[1].flags = UV_INHERIT_FD; //STD_OUT should be redirected to calling function
+	child_stdio[2].flags = UV_IGNORE;
 
+	if (mapped_fds != NULL) {
+		for (; *mapped_fds != -1; mapped_fds += 2) {
+			if (mapped_fds[1] != -1)
+				//dup2(mapped_fds[0], mapped_fds[1]); //Equivalent to dup2() in *inx systems.
+				child_stdio[1].data.fd = mapped_fds[0]; //2 or 1?
+														//close(mapped_fds[0]); //add or delete a close or open action to a spawn file actions object
+		}
+	}
+
+	if (!cloexec_mutex_is_locked)
+		uv_mutex_lock(&cloexec_mutex);
+
+	options.stdio = child_stdio;
+	options.exit_cb = waitpid; //This function will be executed when child exists.
+	options.file = cmd;
+	options.args = argv;
+	options.env = environ;
+	//If the process is successfully spawned, this function will return 0.
+	errno = uv_spawn(loop, &child_req, &options);
+	pid = child_req.pid;
+
+
+	if (!cloexec_mutex_is_locked)
+		uv_mutex_unlock(&cloexec_mutex);
+	if (errno != 0)
+		return -1;
+
+
+	return pid;
+#else
     posix_spawn_file_actions_t file_actions;
     pid_t pid;
     extern char **environ;
@@ -241,15 +300,27 @@ int h2o_read_command(const char *cmd, char **argv, h2o_buffer_t **resp, int *chi
     int mutex_locked = 0, ret = -1;
 
     h2o_buffer_init(resp, &h2o_socket_buffer_prototype);
-
+#ifndef _MSC_VER
     pthread_mutex_lock(&cloexec_mutex);
     mutex_locked = 1;
-
+#else
+	uv_mutex_lock(&cloexec_mutex);
+	mutex_locked = 1;
+#endif
     /* create pipe for reading the result */
-    if (pipe(respfds) != 0)
-        goto Exit;
-    fcntl(respfds[0], F_SETFD, O_CLOEXEC);
+#ifdef _MSC_VER
+	if (_pipe(respfds, 4096, O_BINARY) == -1) //on fail
+											  //-- : Debug{
+											  //printf("Pipe Failed \n");
+		goto Exit;
+#else
+	if (pipe(respfds) != 0) //on fail
+		goto Exit;
+#endif
 
+#ifndef _MSC_VER
+    fcntl(respfds[0], F_SETFD, O_CLOEXEC);
+#endif
     /* spawn */
     int mapped_fds[] = {respfds[1], 1, /* stdout of the child process is read from the pipe */
                         -1};
@@ -257,16 +328,24 @@ int h2o_read_command(const char *cmd, char **argv, h2o_buffer_t **resp, int *chi
         goto Exit;
     close(respfds[1]);
     respfds[1] = -1;
-
+#ifndef _MSC_VER
     pthread_mutex_unlock(&cloexec_mutex);
+#else
+	uv_mutex_unlock(&cloexec_mutex);
+#endif
     mutex_locked = 0;
 
     /* read the response from pipe */
     while (1) {
         h2o_iovec_t buf = h2o_buffer_reserve(resp, 8192);
         ssize_t r;
+#ifndef _MSC_VER
         while ((r = read(respfds[0], buf.base, buf.len)) == -1 && errno == EINTR)
             ;
+#else
+		while ((r = _read(respfds[0], buf.base, buf.len)) == -1 && errno == EINTR)
+			;
+#endif
         if (r <= 0)
             break;
         (*resp)->size += r;
@@ -274,7 +353,13 @@ int h2o_read_command(const char *cmd, char **argv, h2o_buffer_t **resp, int *chi
 
 Exit:
     if (mutex_locked)
+#ifndef _MSC_VER
         pthread_mutex_unlock(&cloexec_mutex);
+#else
+		uv_mutex_unlock(&cloexec_mutex);
+#endif
+	//Child _ waiting doesn't work same way in Windows so
+#ifndef _MSC_VER
     if (pid != -1) {
         /* wait for the child to complete */
         pid_t r;
@@ -285,10 +370,20 @@ Exit:
             ret = 0;
         }
     }
+#else
+	//If you can come up with a way to wait for a child to exist in Windows put here.s
+#endif
+#ifndef _MSC_VER
     if (respfds[0] != -1)
         close(respfds[0]);
     if (respfds[1] != -1)
         close(respfds[1]);
+#else
+	if (respfds[0] != -1)
+		_close(respfds[0]);
+	if (respfds[1] != -1)
+		_close(respfds[1]);
+#endif
     if (ret != 0)
         h2o_buffer_dispose(resp);
 
@@ -297,6 +392,12 @@ Exit:
 
 size_t h2o_numproc(void)
 {
+#ifdef _MSC_VER
+	SYSTEM_INFO sysinfo;
+	GetSystemInfo(&sysinfo);
+	return (size_t)sysinfo.dwNumberOfProcessors;
+#endif
+
 #if defined(_SC_NPROCESSORS_ONLN)
     return (size_t)sysconf(_SC_NPROCESSORS_ONLN);
 #elif defined(CTL_HW) && defined(HW_AVAILCPU)

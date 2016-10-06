@@ -25,7 +25,11 @@
 struct st_requests_status_ctx_t {
     h2o_logconf_t *logconf;
     h2o_iovec_t req_data;
+#ifndef _MSC_VER
     pthread_mutex_t mutex;
+#else
+	uv_mutex_t mutex;
+#endif
 };
 
 struct st_collect_req_status_cbdata_t {
@@ -70,13 +74,21 @@ static void requests_status_per_thread(void *priv, h2o_context_t *ctx)
 
     /* concat JSON elements */
     if (cbdata.buffer->size != 0) {
+#ifndef _MSC_VER
         pthread_mutex_lock(&rsc->mutex);
+#else
+		uv_mutex_lock(&rsc->mutex);
+#endif
         if (rsc->req_data.len == 0)
             h2o_buffer_consume(&cbdata.buffer, 1); /* skip preceeding comma */
         rsc->req_data.base = h2o_mem_realloc(rsc->req_data.base, rsc->req_data.len + cbdata.buffer->size);
         memcpy(rsc->req_data.base + rsc->req_data.len, cbdata.buffer->bytes, cbdata.buffer->size);
         rsc->req_data.len += cbdata.buffer->size;
-        pthread_mutex_unlock(&rsc->mutex);
+#ifndef _MSC_VER
+		pthread_mutex_unlock(&rsc->mutex);
+#else
+		uv_mutex_unlock(&rsc->mutex);
+#endif
     }
 
     h2o_buffer_dispose(&cbdata.buffer);
@@ -121,16 +133,27 @@ static void *requests_status_init(void)
     if ((rsc->logconf = h2o_logconf_compile(fmt, H2O_LOGCONF_ESCAPE_JSON, errbuf)) == NULL)
         /* log format compilation error is an internal logic flaw, therefore we need not send the details to the client */
         fprintf(stderr, "[lib/handler/status/requests.c] failed to compile log format: %s", errbuf);
-
+#ifndef _MSC_VER
     rsc->req_data = (h2o_iovec_t){NULL};
-    pthread_mutex_init(&rsc->mutex, NULL);
+#else
+	rsc->req_data = (h2o_iovec_t) { 0 };
+#endif
 
+#ifndef _MSC_VER
+    pthread_mutex_init(&rsc->mutex, NULL);
+#else
+	uv_mutex_init(&rsc->mutex);
+#endif
     return rsc;
 }
 
 static h2o_iovec_t requests_status_final(void *priv, h2o_globalconf_t *gconf, h2o_req_t *req)
 {
+#ifndef _MSC_VER
     h2o_iovec_t ret = {NULL};
+#else
+	h2o_iovec_t ret = { 0 };
+#endif
     struct st_requests_status_ctx_t *rsc = priv;
 
     if (rsc->logconf != NULL) {
@@ -139,12 +162,22 @@ static h2o_iovec_t requests_status_final(void *priv, h2o_globalconf_t *gconf, h2
         h2o_logconf_dispose(rsc->logconf);
     }
     free(rsc->req_data.base);
+#ifndef _MSC_VER
     pthread_mutex_destroy(&rsc->mutex);
-
+#else
+	uv_mutex_destroy(&rsc->mutex);
+#endif
     free(rsc);
     return ret;
 }
 
+#ifndef _MSC_VER
 h2o_status_handler_t requests_status_handler = {
     {H2O_STRLIT("requests")}, requests_status_init, requests_status_per_thread, requests_status_final,
 };
+#else
+h2o_status_handler_t requests_status_handler = {
+	{ H2O_MY_STRLIT("requests") }, requests_status_init, requests_status_per_thread, requests_status_final,
+};
+
+#endif
