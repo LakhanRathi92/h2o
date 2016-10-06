@@ -22,7 +22,7 @@ b) Generate the solution.
 	2.1) 
     In Visual studio 2015, right click on examples-simple->properties.
     Go to linker, Input, additional dependencies, and provide path of mman.lib, that you can build
-	from source code provided in External_libararies folder.
+	from source code provided in Externallibararies_MSVC folder.
 
     2.2)
 	Copy libeay32.dll and ssleay32.dll and put them in your Build folder. (Can be found in 
