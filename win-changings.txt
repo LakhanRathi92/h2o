@@ -1,0 +1,32 @@
+	threads :
+	Instead of pthreads, we switched to libuv threads, that was already part of the project.
+	
+	header files :
+	Windows specific header files are included and *ix specific header files are removed throughout project using ifdef's. 
+	The order of includes really matters when we are dealing with winsock2 and windows.h header files, else one will
+	get tons of redifintions errors.
+	
+	time :
+	Various time related functions have similar counter parts in windows, just the order of arguments is reversed.
+	for e.g : gmtime_r(x, y) is a thread-safe function from *ix, counterpart in Visual studio gmtime_s(y, x); 
+	
+	Atomic built-ins :
+	__sync_sub_and_fetch(), __sync_add_and_fetch(), are replaced with InterlockedDecrement() and InterlockedIncrement(). The return type of former functions
+	is previous value before adding or subtracting, whereas later ones provide result after adding, so return is appropriately handled.
+	__builtin_constant_p : locally defined to return always 0, so no optimization. 
+	
+	VLA :
+	Work around for variable length array issue in compress.c (libUV tests). 
+	
+	New definitions for posix functions:	
+	Some posix functions like gettimeofday() (in context.c) defined in sys/time.h, are locally defined in relevant files. You may find relevant comment on top
+	providing reference to such a definition.
+ 	
+	Re-naming and alternatives:
+	Some deprecated Posix functions were changed with Visual studio counter parts such as _open() instead of open() in access_log.c 
+	alternatives for posix functions like strcasecmp, being _stricmp in MSVC were defined, where ever possible.
+	
+	h2o_iovec_t & uv_buf_t:	
+	changed order of h2o_iovec_t to match that of uv_buf_t. uv-binding.c.h, provides an interface between libUV and libh2o. 
+	The buffer allocation for a read or write while doing memcpy was not working as expected, without this change. Again this change is in ifdefs so it should
+	work fine on both environments.
