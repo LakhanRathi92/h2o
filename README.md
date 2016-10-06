@@ -29,5 +29,5 @@ To get an idea of what we changed to make libh2o work under Visual studio please
   
 ### Acknowledgement
 
-
+This work has been supported by the <a href="http://www.bmbf.de/en/index.html">German Ministry for Education and Research (BMBF)</a> as part of the <a href="http://www.arvida.de/"> ARVIDA project (FKZ 01IM13001J). ARVIDA is a BMBF-funded joint project of 21 project partners from industry, SME and science. The consortium is managed by Prof. W. Schreiber from Volkswagen AG. The project started in September 2013 and will run for 3 years.
 
